@@ -1,0 +1,77 @@
+<div class="story_ideas_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Story Ideas</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <!-- 활성화 -->
+            <div class="flex-container">
+                <label class="checkbox_label" for="si_enabled">
+                    <input type="checkbox" id="si_enabled" class="si_enabled" />
+                    <span>확장 활성화</span>
+                </label>
+            </div>
+
+            
+
+            <!-- API 소스 선택 -->
+            <div class="flex-container flexFlowColumn">
+                <label for="si_source">API 소스</label>
+                <select id="si_source" class="si_source text_pole">
+                    <option value="main">Main API (현재 연결된 API)</option>
+                    <option value="profile">Connection Profile</option>
+                </select>
+            </div>
+
+            <div id="si_profile_area" class="flex-container flexFlowColumn" style="display:none;">
+                <label>Connection Profile 선택</label>
+                <select class="si_connection_profile text_pole"></select>
+            </div>
+
+            
+
+            <!-- 추천 설정 -->
+            <div class="flex-container flexFlowColumn">
+                <label for="si_count">추천 개수 (3~8)</label>
+                <input type="number" id="si_count" class="si_count text_pole" min="3" max="8" value="3" />
+            </div>
+
+            <div class="flex-container flexFlowColumn">
+                <label for="si_detail_level">상세 수준</label>
+                <select id="si_detail_level" class="si_detail_level text_pole">
+                    <option value="brief">간략 (1-2문장)</option>
+                    <option value="normal">보통 (3-5문장)</option>
+                    <option value="detailed">상세 (6문장 이상)</option>
+                </select>
+            </div>
+
+            <div class="flex-container flexFlowColumn">
+                <label for="si_lang">출력 언어</label>
+                <select id="si_lang" class="si_lang text_pole">
+                    <option value="en">English</option>
+                    <option value="ko">한국어</option>
+                </select>
+            </div>
+
+            
+
+            <!-- 프롬프트 설정 -->
+            <div class="flex-container flexFlowColumn">
+                <label>프롬프트 프리셋</label>
+                <div class="flex-container">
+                    <select class="si_prompt_preset text_pole" style="flex:1;"></select>
+                    <button class="si_prompt_preset_load menu_button" title="불러오기">📂</button>
+                    <button class="si_prompt_preset_save menu_button" title="저장">💾</button>
+                    <button class="si_prompt_preset_remove menu_button" title="삭제">🗑️</button>
+                </div>
+            </div>
+
+            <div class="flex-container flexFlowColumn">
+                <label for="si_prompt">커스텀 프롬프트 (추천 방향 설정)</label>
+                <textarea id="si_prompt" class="si_prompt text_pole" rows="8" placeholder="에피소드 추천 방향을 작성하세요..."></textarea>
+                <button class="si_prompt_reset menu_button">기본 프롬프트로 복원</button>
+            </div>
+        </div>
+    </div>
+</div>
