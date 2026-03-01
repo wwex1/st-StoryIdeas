@@ -1,7 +1,6 @@
 /**
  * Story Ideas - Episode Suggestion Extension for SillyTavern
- * 캐릭터/세계관/대화 맥락을 분석하여 다음 에피소드 아이디어를 추천합니다.
- * 하단 드로어 패널 + 가로 카드 슬라이더 UI
+ * 마지막 메시지 아래에 가로 카드 블록으로 에피소드 추천 표시
  */
 
 import { event_types } from '../../../events.js';
@@ -10,8 +9,6 @@ import { power_user } from '../../../power-user.js';
 import { getWorldInfoPrompt } from '../../../world-info.js';
 
 const EXT_NAME = 'SillyTavern-StoryIdeas';
-
-// ─── 기본값 ───
 
 const INITIAL_PROMPT = `Based on the current roleplay context—characters, world-building, and recent conversation—suggest possible next episode or story arc ideas.
 
@@ -33,16 +30,12 @@ const DEFAULTS = {
     lang: 'en',
     prompt: INITIAL_PROMPT,
     promptPresets: {},
-    cache: {},  // { chatId: { ideas: [...], ts } }
+    cache: {},
 };
-
-// ─── 상태 ───
 
 let cfg = {};
 let ctx = null;
 let generating = false;
-
-// ─── 유틸 ───
 
 function persist() { ctx.saveSettingsDebounced(); }
 
@@ -52,10 +45,7 @@ function esc(str) {
     return d.innerHTML;
 }
 
-function cacheKey() {
-    const chatId = getCurrentChatId();
-    return chatId || null;
-}
+function chatKey() { return getCurrentChatId() || null; }
 
 // ─── 부팅 ───
 
@@ -67,16 +57,13 @@ async function boot() {
         ctx.extensionSettings[EXT_NAME] = structuredClone(DEFAULTS);
     }
     cfg = ctx.extensionSettings[EXT_NAME];
-
     for (const [k, v] of Object.entries(DEFAULTS)) {
         if (cfg[k] === undefined) cfg[k] = v;
     }
 
     seedPresets();
-    createDrawerDOM();
     await mountSettings();
     bindEvents();
-
     console.log(`[${EXT_NAME}] Ready.`);
 }
 
@@ -116,117 +103,40 @@ Consider:
     persist();
 }
 
-// ─── 드로어 DOM 생성 ───
-
-function createDrawerDOM() {
-    if ($('#si-drawer').length) return;
-
-    const overlay = $('<div id="si-overlay" class="si-overlay"></div>');
-    const drawer = $(`
-        <div id="si-drawer" class="si-drawer">
-            <div class="si-handle"></div>
-            <div class="si-drawer-head">
-                <span class="si-drawer-title">💡 에피소드 추천</span>
-                <div class="si-drawer-actions">
-                    <button class="si-drawer-btn si-btn-refresh" title="새로 생성">🔄</button>
-                    <button class="si-drawer-btn si-btn-trash" title="삭제">🗑️</button>
-                    <button class="si-drawer-btn si-btn-close" title="닫기">✕</button>
-                </div>
-            </div>
-            <div class="si-slider-wrap">
-                <div id="si-content" class="si-slider"></div>
-            </div>
-        </div>
-    `);
-
-    $('body').append(overlay).append(drawer);
-
-    // 닫기
-    overlay.on('click', () => closeDrawer());
-    drawer.find('.si-btn-close').on('click', () => closeDrawer());
-
-    // 재생성
-    drawer.find('.si-btn-refresh').on('click', async () => {
-        if (generating) return;
-        const key = cacheKey();
-        if (key && cfg.cache[key]) {
-            delete cfg.cache[key];
-            persist();
-        }
-        await generate();
-    });
-
-    // 삭제
-    drawer.find('.si-btn-trash').on('click', () => {
-        const key = cacheKey();
-        if (key && cfg.cache[key]) {
-            delete cfg.cache[key];
-            persist();
-        }
-        $('#si-content').html('<div class="si-empty">추천이 삭제되었습니다.</div>');
-        toastr.success('추천 삭제됨');
-    });
-}
-
-function openDrawer() {
-    $('#si-overlay').addClass('visible');
-    $('#si-drawer').addClass('open');
-}
-
-function closeDrawer() {
-    $('#si-overlay').removeClass('visible');
-    $('#si-drawer').removeClass('open');
-}
-
-function isDrawerOpen() {
-    return $('#si-drawer').hasClass('open');
-}
-
 // ─── 설정 패널 ───
 
 async function mountSettings() {
     const html = await ctx.renderExtensionTemplateAsync(`third-party/${EXT_NAME}`, 'settings');
     $('#extensions_settings').append(html);
-
     const root = $('.story_ideas_settings');
 
-    root.find('.si_enabled')
-        .prop('checked', cfg.enabled)
-        .on('change', function () {
-            cfg.enabled = $(this).prop('checked');
-            persist();
-            const menuBtn = document.getElementById('si_menu_btn');
-            if (menuBtn) menuBtn.style.display = cfg.enabled ? '' : 'none';
-            toastr.info(cfg.enabled ? 'Story Ideas 활성화됨' : 'Story Ideas 비활성화됨');
-        });
+    root.find('.si_enabled').prop('checked', cfg.enabled).on('change', function () {
+        cfg.enabled = $(this).prop('checked');
+        persist();
+        const btn = document.getElementById('si_menu_btn');
+        if (btn) btn.style.display = cfg.enabled ? '' : 'none';
+        toastr.info(cfg.enabled ? 'Story Ideas 활성화됨' : 'Story Ideas 비활성화됨');
+    });
 
-    root.find('.si_source')
-        .val(cfg.apiSource)
-        .on('change', function () {
-            cfg.apiSource = $(this).val();
-            persist();
-            $('#si_profile_area').toggle(cfg.apiSource === 'profile');
-        });
+    root.find('.si_source').val(cfg.apiSource).on('change', function () {
+        cfg.apiSource = $(this).val();
+        persist();
+        $('#si_profile_area').toggle(cfg.apiSource === 'profile');
+    });
     $('#si_profile_area').toggle(cfg.apiSource === 'profile');
 
     ctx.ConnectionManagerRequestService.handleDropdown(
         '.story_ideas_settings .si_connection_profile',
         cfg.connectionProfileId,
-        (profile) => {
-            cfg.connectionProfileId = profile?.id ?? '';
-            persist();
-        },
+        (p) => { cfg.connectionProfileId = p?.id ?? ''; persist(); },
     );
 
-    // 추천 설정
-    bindField(root, '.si_count', 'count', 'num');
+    bindField(root, '.si_count', 'count', true);
     bindField(root, '.si_detail_level', 'detailLevel');
     bindField(root, '.si_lang', 'lang');
 
-    // 프롬프트
     root.find('.si_prompt').val(cfg.prompt).on('change', function () {
-        cfg.prompt = $(this).val();
-        persist();
+        cfg.prompt = $(this).val(); persist();
     });
 
     root.find('.si_prompt_reset').on('click', async function () {
@@ -238,25 +148,21 @@ async function mountSettings() {
         }
     });
 
-    // 프리셋
     mountPresetUI(root);
 }
 
-function bindField(root, sel, key, type) {
+function bindField(root, sel, key, isNum) {
     root.find(sel).val(cfg[key]).on('change', function () {
-        cfg[key] = type === 'num' ? Number($(this).val()) : $(this).val();
+        cfg[key] = isNum ? Number($(this).val()) : $(this).val();
         persist();
     });
 }
 
 function mountPresetUI(root) {
     const sel = root.find('.si_prompt_preset');
-
     function refresh() {
         sel.empty();
-        Object.keys(cfg.promptPresets || {}).forEach(n => {
-            sel.append(`<option value="${n}">${n}</option>`);
-        });
+        Object.keys(cfg.promptPresets || {}).forEach(n => sel.append(`<option value="${n}">${n}</option>`));
     }
     refresh();
 
@@ -275,9 +181,7 @@ function mountPresetUI(root) {
         const t = n.trim();
         if (cfg.promptPresets[t] && !await ctx.Popup.show.confirm(`"${t}" 덮어쓸까요?`, '덮어쓰기')) return;
         cfg.promptPresets[t] = cfg.prompt;
-        persist();
-        refresh();
-        sel.val(t);
+        persist(); refresh(); sel.val(t);
         toastr.success(`"${t}" 저장됨`);
     });
 
@@ -286,8 +190,7 @@ function mountPresetUI(root) {
         if (!n) return toastr.warning('프리셋을 선택하세요.');
         if (await ctx.Popup.show.confirm(`"${n}" 삭제?`, '삭제')) {
             delete cfg.promptPresets[n];
-            persist();
-            refresh();
+            persist(); refresh();
             toastr.success(`"${n}" 삭제됨`);
         }
     });
@@ -296,7 +199,7 @@ function mountPresetUI(root) {
 // ─── 이벤트 ───
 
 function bindEvents() {
-    // 마법봉 메뉴에 버튼 추가
+    // 마법봉 메뉴 버튼
     const menuBtn = document.createElement('div');
     menuBtn.id = 'si_menu_btn';
     menuBtn.className = 'list-group-item flex-container flexGap5 interactable';
@@ -305,19 +208,17 @@ function bindEvents() {
     menuBtn.style.display = cfg.enabled ? '' : 'none';
 
     menuBtn.addEventListener('click', async () => {
-        if (!cfg.enabled) return;
+        if (!cfg.enabled || generating) return;
         $('#extensionsMenu').hide();
 
-        openDrawer();
-
-        // 캐시가 있으면 바로 표시
-        const key = cacheKey();
+        // 캐시 확인
+        const key = chatKey();
         if (key && cfg.cache[key]?.ideas?.length) {
-            renderCards(cfg.cache[key].ideas);
+            renderBlock(cfg.cache[key].ideas);
+            scrollToBlock();
             return;
         }
 
-        // 없으면 생성
         await generate();
     });
 
@@ -332,10 +233,29 @@ function bindEvents() {
         obs.observe(document.body, { childList: true, subtree: true });
     }
 
-    // 채팅 변경 시 캐시 자동 로드 안 함 (드로어는 수동 오픈이므로)
+    // 채팅 변경 시 기존 블록 제거
     ctx.eventSource.on(event_types.CHAT_CHANGED, () => {
-        if (isDrawerOpen()) closeDrawer();
+        removeBlock();
     });
+}
+
+// ─── 블록 삽입/제거 ───
+
+function removeBlock() {
+    $('#si-block').remove();
+}
+
+function getInsertTarget() {
+    // 채팅 영역의 마지막 메시지 뒤에 삽입
+    const chatEl = $('#chat');
+    return chatEl;
+}
+
+function scrollToBlock() {
+    const block = document.getElementById('si-block');
+    if (block) {
+        block.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
 }
 
 // ─── 생성 ───
@@ -349,13 +269,13 @@ async function generate() {
         return;
     }
 
-    if (!ctx.chat || ctx.chat.length === 0) {
+    if (!ctx.chat?.length) {
         toastr.warning('대화 내역이 없습니다.');
         return;
     }
 
-    const lastBotIdx = findLastBotIdx();
-    if (lastBotIdx === -1) {
+    const lastBot = findLastBot();
+    if (lastBot === -1) {
         toastr.warning('봇 메시지가 없습니다.');
         return;
     }
@@ -368,14 +288,13 @@ async function generate() {
         let raw = '';
 
         if (cfg.apiSource === 'main') {
-            const background = await gatherPlain(lastBotIdx);
+            const bg = await gatherPlain(lastBot);
             const { generateRaw } = ctx;
             if (!generateRaw) throw new Error('generateRaw not available');
-            raw = await generateRaw({ systemPrompt: background, prompt: instruction, streaming: false });
+            raw = await generateRaw({ systemPrompt: bg, prompt: instruction, streaming: false });
         } else {
-            const msgs = await gatherMessages(lastBotIdx);
+            const msgs = await gatherMessages(lastBot);
             msgs.push({ role: 'user', content: instruction });
-
             if (!ctx.ConnectionManagerRequestService) throw new Error('Connection Manager 미로드');
 
             const resp = await ctx.ConnectionManagerRequestService.sendRequest(
@@ -393,14 +312,14 @@ async function generate() {
         const ideas = parseIdeas(raw);
         if (!ideas?.length) throw new Error('파싱 실패');
 
-        // 캐시 저장
-        const key = cacheKey();
+        const key = chatKey();
         if (key) {
             cfg.cache[key] = { ideas, ts: Date.now() };
             persist();
         }
 
-        renderCards(ideas);
+        renderBlock(ideas);
+        scrollToBlock();
 
     } catch (err) {
         console.error(`[${EXT_NAME}]`, err);
@@ -417,7 +336,6 @@ function buildInstruction() {
     const langNote = (cfg.lang || 'en') === 'ko'
         ? '⚠️ 모든 추천을 한국어로 작성하세요.'
         : '⚠️ Write all suggestions in English.';
-
     const detail = { brief: '1-2 sentences', normal: '3-5 sentences', detailed: '6+ sentences' };
 
     return `${ctx.substituteParams(cfg.prompt)}
@@ -443,7 +361,7 @@ Rules:
 
 // ─── 컨텍스트 수집 ───
 
-function findLastBotIdx() {
+function findLastBot() {
     for (let i = ctx.chat.length - 1; i >= 0; i--) {
         if (!ctx.chat[i].is_user) return i;
     }
@@ -505,10 +423,8 @@ async function gatherPlain(upTo) {
     if (c) t += '=== CHARACTER ===\n' + c + '\n\n';
     const l = await getLore();
     if (l) t += '=== LOREBOOK ===\n' + l + '\n\n';
-
     t += '=== CONVERSATION ===\n';
-    const depth = 30;
-    const start = Math.max(0, upTo - depth + 1);
+    const start = Math.max(0, upTo - 29);
     for (let i = start; i <= upTo; i++) {
         const m = ctx.chat[i];
         if (!m) continue;
@@ -520,18 +436,13 @@ async function gatherPlain(upTo) {
 
 async function gatherMessages(upTo) {
     const msgs = [];
-    const p = getPersona();
-    const c = getCharacter();
-    const l = await getLore();
-
+    const p = getPersona(), c = getCharacter(), l = await getLore();
     let sys = '';
     if (p) sys += p;
     if (c) sys += (sys ? '\n\n' : '') + c;
     if (l) sys += (sys ? '\n\n=== LOREBOOK ===\n' : '') + l;
     if (sys) msgs.push({ role: 'system', content: sys });
-
-    const depth = 30;
-    const start = Math.max(0, upTo - depth + 1);
+    const start = Math.max(0, upTo - 29);
     for (let i = start; i <= upTo; i++) {
         const m = ctx.chat[i];
         if (!m) continue;
@@ -544,34 +455,28 @@ async function gatherMessages(upTo) {
 
 function parseIdeas(content) {
     if (!content) return null;
-
     const tagMatch = content.match(/<suggestions>\s*([\s\S]*?)\s*<\/suggestions>/i);
     const body = tagMatch ? tagMatch[1] : content;
 
-    // [Title] + 본문
     const blocks = [];
     const re = /\[([^\]]+)\]\s*\n([\s\S]*?)(?=\n\s*\[|\s*$)/g;
     let m;
     while ((m = re.exec(body)) !== null) {
-        const title = m[1].trim();
-        const desc = m[2].trim();
+        const title = m[1].trim(), desc = m[2].trim();
         if (title && desc.length > 5) blocks.push({ title, body: desc });
     }
     if (blocks.length) return blocks.slice(0, cfg.count || 8);
 
-    // 숫자 리스트 폴백
     const nums = [];
     const nr = /\d+\.\s*\*?\*?([^*\n:]+)\*?\*?\s*[-:]\s*([\s\S]*?)(?=\n\d+\.|$)/g;
     while ((m = nr.exec(body)) !== null) {
-        const title = m[1].trim();
-        const desc = m[2].trim();
+        const title = m[1].trim(), desc = m[2].trim();
         if (title && desc.length > 5) nums.push({ title, body: desc });
     }
     if (nums.length >= 2) return nums.slice(0, cfg.count || 8);
 
-    // 불릿 폴백
-    const bullets = body.split('\n')
-        .map(l => l.trim()).filter(l => /^[-*•]\s+/.test(l))
+    const bullets = body.split('\n').map(l => l.trim())
+        .filter(l => /^[-*•]\s+/.test(l))
         .map(l => l.replace(/^[-*•]\s*/, '').trim())
         .filter(l => l.length > 10);
     if (bullets.length >= 2) return bullets.slice(0, cfg.count || 8).map(b => ({ title: '', body: b }));
@@ -581,48 +486,81 @@ function parseIdeas(content) {
 
 // ─── 렌더링 ───
 
-function renderCards(ideas) {
-    const container = $('#si-content');
-    container.empty().removeClass('si-slider');
+function renderBlock(ideas) {
+    removeBlock();
 
-    // 슬라이더 모드
-    container.addClass('si-slider');
+    const block = $('<div id="si-block" class="si-block"></div>');
 
+    // 헤더
+    const head = $('<div class="si-block-head"></div>');
+    head.append('<span class="si-block-title">💡 에피소드 추천</span>');
+
+    const btns = $('<div class="si-block-btns"></div>');
+    btns.append('<button class="si-block-btn si-do-refresh" title="새로 생성">🔄</button>');
+    btns.append('<button class="si-block-btn si-do-delete" title="삭제">🗑️</button>');
+    head.append(btns);
+    block.append(head);
+
+    // 카드 영역
+    const cards = $('<div class="si-cards"></div>');
     ideas.forEach((idea, i) => {
-        const card = $(`
+        cards.append(`
             <div class="si-idea">
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div class="si-idea-head">
                     <span class="si-idea-num">${i + 1}</span>
                     <span class="si-idea-title">${esc(idea.title || `아이디어 ${i + 1}`)}</span>
                 </div>
                 <div class="si-idea-desc">${esc(idea.body || '')}</div>
             </div>
         `);
-        container.append(card);
+    });
+    block.append(cards);
+
+    // 채팅 영역 마지막에 삽입
+    $('#chat').append(block);
+
+    // 버튼 이벤트
+    block.find('.si-do-refresh').on('click', async () => {
+        if (generating) return;
+        const key = chatKey();
+        if (key && cfg.cache[key]) { delete cfg.cache[key]; persist(); }
+        await generate();
+    });
+
+    block.find('.si-do-delete').on('click', () => {
+        const key = chatKey();
+        if (key && cfg.cache[key]) { delete cfg.cache[key]; persist(); }
+        removeBlock();
+        toastr.success('추천 삭제됨');
     });
 }
 
 function showLoading() {
-    $('#si-content').empty().removeClass('si-slider').html(`
+    removeBlock();
+    const block = $('<div id="si-block" class="si-block"></div>');
+    block.html(`
         <div class="si-loading">
-            <div class="si-spinner"></div>
+            <div class="si-spin"></div>
             <span>에피소드 추천 생성 중...</span>
         </div>
     `);
+    $('#chat').append(block);
+    scrollToBlock();
 }
 
 function showError(msg) {
-    const container = $('#si-content');
-    container.empty().removeClass('si-slider').html(`
-        <div class="si-error">
+    removeBlock();
+    const block = $('<div id="si-block" class="si-block"></div>');
+    block.html(`
+        <div class="si-err">
             <div>❌ 생성 실패</div>
-            <div style="font-size:0.85em;margin-top:4px;opacity:0.7;">${esc(msg)}</div>
-            <button class="si-error-retry">🔄 재시도</button>
+            <div style="margin-top:4px;opacity:0.7;font-size:0.85em;">${esc(msg)}</div>
+            <button class="si-err-retry">🔄 재시도</button>
         </div>
     `);
-    container.find('.si-error-retry').on('click', async () => {
-        await generate();
-    });
+    $('#chat').append(block);
+    block.find('.si-err-retry').on('click', () => generate());
+    scrollToBlock();
 }
 
 // ─── 시작 ───
