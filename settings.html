@@ -27,14 +27,6 @@
                     <input type="number" class="si_count text_pole" min="3" max="8" value="3" />
                 </div>
                 <div class="flex-container flexFlowColumn flex1">
-                    <small>상세도</small>
-                    <select class="si_detail_level text_pole">
-                        <option value="brief">간략</option>
-                        <option value="normal">보통</option>
-                        <option value="detailed">상세</option>
-                    </select>
-                </div>
-                <div class="flex-container flexFlowColumn flex1">
                     <small>언어</small>
                     <select class="si_lang text_pole">
                         <option value="en">EN</option>
@@ -44,13 +36,7 @@
             </div>
 
             <div class="flex-container flexFlowColumn">
-                <div class="flex-container">
-                    <small class="flex1">프롬프트 프리셋</small>
-                    <select class="si_prompt_preset text_pole flex1"></select>
-                    <button class="si_preset_load menu_button fa-solid fa-folder-open" title="불러오기"></button>
-                    <button class="si_preset_save menu_button fa-solid fa-floppy-disk" title="저장"></button>
-                    <button class="si_preset_del menu_button fa-solid fa-trash" title="삭제"></button>
-                </div>
+                <small>커스텀 프롬프트</small>
                 <textarea class="si_prompt text_pole" rows="6" placeholder="추천 방향을 설정하세요..."></textarea>
                 <div class="flex-container flexFlowRowReverse">
                     <button class="si_prompt_reset menu_button">초기화</button>
