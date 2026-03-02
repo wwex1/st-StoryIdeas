@@ -10,24 +10,29 @@ import { getWorldInfoPrompt } from '../../../world-info.js';
 
 const EXT_NAME = 'SillyTavern-StoryIdeas';
 
-const INITIAL_PROMPT = `Based on the current roleplay context—characters, world-building, and recent conversation—suggest possible next episode or story arc ideas.
+const INITIAL_PROMPT = `Based on the current roleplay context, suggest diverse episode ideas that could naturally follow from the story so far.
 
-Consider:
-- Unresolved tensions or foreshadowed events
-- Character goals, secrets, or unspoken desires
-- World events, politics, or environmental changes
-- Relationship developments or conflicts
-- Interesting "what if" scenarios that fit the setting
+Vary the tone and genre of each suggestion—mix and match from possibilities like:
+- Lighthearted or comedic moments
+- Emotional or heartfelt scenes
+- Suspenseful or mysterious developments
+- Action or adventure scenarios
+- Quiet slice-of-life interactions
+- Dramatic reveals or turning points
+- Romantic or relationship-focused events
+- World-building or lore-expanding episodes
 
-Each suggestion should include a short title and a brief 1-2 sentence description.`;
+Draw from the characters' personalities, unresolved threads, world details, and recent events. Each idea should feel like a distinct flavor, not just variations of the same mood.`;
 
 const DEFAULTS = {
     enabled: true,
     apiSource: 'main',
     connectionProfileId: '',
     count: 3,
+    detailLevel: 'brief',
     lang: 'en',
     prompt: INITIAL_PROMPT,
+    promptPresets: {},
     cache: {},
 };
 
@@ -58,6 +63,8 @@ async function boot() {
     for (const [k, v] of Object.entries(DEFAULTS)) {
         if (cfg[k] === undefined) cfg[k] = v;
     }
+
+    if (!cfg.promptPresets) cfg.promptPresets = {};
 
     await mountSettings();
     bindEvents();
@@ -96,6 +103,10 @@ async function mountSettings() {
         cfg.count = Number($(this).val()); persist();
     });
 
+    root.find('.si_detail_level').val(cfg.detailLevel).on('change', function () {
+        cfg.detailLevel = $(this).val(); persist();
+    });
+
     root.find('.si_lang').val(cfg.lang).on('change', function () {
         cfg.lang = $(this).val(); persist();
     });
@@ -110,6 +121,47 @@ async function mountSettings() {
             root.find('.si_prompt').val(INITIAL_PROMPT);
             persist();
             toastr.success('프롬프트 초기화됨');
+        }
+    });
+
+    // 프리셋
+    mountPresetUI(root);
+}
+
+function mountPresetUI(root) {
+    const sel = root.find('.si_prompt_preset');
+    function refresh() {
+        sel.empty();
+        Object.keys(cfg.promptPresets || {}).forEach(n => sel.append(`<option value="${n}">${n}</option>`));
+    }
+    refresh();
+
+    root.find('.si_preset_load').on('click', () => {
+        const n = sel.val();
+        if (!n || !cfg.promptPresets[n]) return;
+        cfg.prompt = cfg.promptPresets[n];
+        root.find('.si_prompt').val(cfg.prompt);
+        persist();
+        toastr.success(`"${n}" 적용됨`);
+    });
+
+    root.find('.si_preset_save').on('click', async () => {
+        const n = await ctx.Popup.show.input('프리셋 이름:', '저장');
+        if (!n?.trim()) return;
+        const t = n.trim();
+        if (cfg.promptPresets[t] && !await ctx.Popup.show.confirm(`"${t}" 덮어쓸까요?`, '덮어쓰기')) return;
+        cfg.promptPresets[t] = cfg.prompt;
+        persist(); refresh(); sel.val(t);
+        toastr.success(`"${t}" 저장됨`);
+    });
+
+    root.find('.si_preset_del').on('click', async () => {
+        const n = sel.val();
+        if (!n) return toastr.warning('프리셋을 선택하세요.');
+        if (await ctx.Popup.show.confirm(`"${n}" 삭제?`, '삭제')) {
+            delete cfg.promptPresets[n];
+            persist(); refresh();
+            toastr.success(`"${n}" 삭제됨`);
         }
     });
 }
@@ -227,6 +279,12 @@ function buildInstruction() {
         ? '⚠️ 모든 추천을 한국어로 작성하세요.'
         : '⚠️ Write all suggestions in English.';
 
+    const detailMap = {
+        brief: 'Keep each description to 1-2 sentences (brief and concise)',
+        normal: 'Write 3-5 sentences per description (moderate detail)',
+    };
+    const detailNote = detailMap[cfg.detailLevel] || detailMap.brief;
+
     return `${ctx.substituteParams(cfg.prompt)}
 
 ${langNote}
@@ -234,15 +292,15 @@ ${langNote}
 OUTPUT FORMAT - Use this EXACT structure:
 <suggestions>
 [Title of idea 1]
-Brief 1-2 sentence description.
+Description here.
 
 [Title of idea 2]
-Brief 1-2 sentence description.
+Description here.
 </suggestions>
 
 Rules:
 - Exactly ${cfg.count} suggestions
-- Keep each description to 1-2 sentences (brief and concise)
+- ${detailNote}
 - Title in [brackets], description on next lines
 - Wrap in <suggestions>...</suggestions>
 - NO text outside the tags`;
@@ -380,7 +438,6 @@ function renderBlock(ideas) {
 
     const block = $('<div id="si-block" class="si-block"></div>');
 
-    // 헤더
     const head = $('<div class="si-block-head"></div>');
     head.append('<span class="si-block-title">💡 에피소드 추천</span>');
     const btns = $('<div class="si-block-btns"></div>');
@@ -389,10 +446,9 @@ function renderBlock(ideas) {
     head.append(btns);
     block.append(head);
 
-    // 카드
     const cards = $('<div class="si-cards"></div>');
     ideas.forEach((idea, i) => {
-        const fullText = `${idea.title || `아이디어 ${i + 1}`}\n${idea.body || ''}`;
+        const bodyText = idea.body || '';
 
         const card = $(`
             <div class="si-idea">
@@ -400,41 +456,34 @@ function renderBlock(ideas) {
                     <span class="si-idea-num">${i + 1}</span>
                     <span class="si-idea-title">${esc(idea.title || `아이디어 ${i + 1}`)}</span>
                 </div>
-                <div class="si-idea-desc">${esc(idea.body || '')}</div>
+                <div class="si-idea-desc">${esc(bodyText)}</div>
                 <div class="si-idea-actions">
-                    <button class="si-idea-act si-act-copy" title="클립보드에 복사">📋 복사</button>
+                    <button class="si-idea-act si-act-copy" title="설명 복사">📋 복사</button>
                     <button class="si-idea-act si-act-insert" title="입력창에 삽입">✏️ 삽입</button>
                 </div>
             </div>
         `);
 
-        // 복사 버튼
         card.find('.si-act-copy').on('click', function () {
-            navigator.clipboard.writeText(fullText).then(() => {
-                toastr.success('클립보드에 복사됨');
+            navigator.clipboard.writeText(bodyText).then(() => {
+                toastr.success('복사됨');
             }).catch(() => {
-                // 폴백
                 const ta = document.createElement('textarea');
-                ta.value = fullText;
+                ta.value = bodyText;
                 document.body.appendChild(ta);
                 ta.select();
                 document.execCommand('copy');
                 document.body.removeChild(ta);
-                toastr.success('클립보드에 복사됨');
+                toastr.success('복사됨');
             });
         });
 
-        // 입력창 삽입 버튼
         card.find('.si-act-insert').on('click', function () {
             const textarea = $('#send_textarea');
-            if (!textarea.length) {
-                toastr.warning('입력창을 찾을 수 없습니다.');
-                return;
-            }
+            if (!textarea.length) { toastr.warning('입력창을 찾을 수 없습니다.'); return; }
             const current = textarea.val();
-            const prefix = current ? current + '\n' : '';
-            textarea.val(prefix + fullText);
-            textarea.trigger('input');  // ST에 변경 알림
+            textarea.val(current ? current + '\n' + bodyText : bodyText);
+            textarea.trigger('input');
             textarea.focus();
             toastr.success('입력창에 삽입됨');
         });
@@ -442,10 +491,8 @@ function renderBlock(ideas) {
         cards.append(card);
     });
     block.append(cards);
-
     $('#chat').append(block);
 
-    // 헤더 버튼 이벤트
     block.find('.si-do-refresh').on('click', async () => {
         if (generating) return;
         const key = chatKey();
@@ -488,7 +535,5 @@ function showError(msg) {
     block.find('.si-err-retry').on('click', () => generate());
     scrollToBlock();
 }
-
-// ─── 시작 ───
 
 jQuery(async () => { await boot(); });
