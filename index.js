@@ -259,7 +259,7 @@ async function generate(isRetry) {
         // 재생성: 카드 영역만 로딩으로 교체
         $('#si-cards-area').html(`
             <div class="si-regen-overlay">
-                <div class="si-spin"></div>
+                <div class="si-dots"><span></span><span></span><span></span></div>
                 <span>재생성 중...</span>
             </div>
         `);
@@ -589,7 +589,7 @@ function showLoading() {
     const block = $('<div id="si-block" class="si-block si-block-loading"></div>');
     block.html(`
         <div class="si-loading">
-            <div class="si-spin"></div>
+            <div class="si-dots"><span></span><span></span><span></span></div>
             <span>에피소드 추천 생성 중...</span>
         </div>
     `);
