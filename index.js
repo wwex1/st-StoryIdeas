@@ -35,7 +35,9 @@ The format order must be randomized every time—do NOT follow a fixed pattern l
 
 IMPORTANT: Each choice must be ONE single continuous response. Do NOT split dialogue into multiple separate quoted lines. If a character speaks, write it as one continuous speech in a single set of quotation marks, not broken into separate quotes.
 
-Keep options diverse in tone and approach—assertive, hesitant, playful, serious, emotional, practical, etc. Each should feel like a meaningfully different choice that would take the story in a different direction, while still feeling true to who the character is.`;
+Keep options diverse in tone and approach—assertive, hesitant, playful, serious, emotional, practical, etc. Each should feel like a meaningfully different choice that would take the story in a different direction, while still feeling true to who the character is.
+
+Write narration in literary past tense style (e.g. ~했다, ~였다, ~거렸다). Do NOT use formal polite endings like ~했습니다, ~였습니다, ~됩니다 in narration.`;
 
 const DEFAULTS = {
     enabled: true,
