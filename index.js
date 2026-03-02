@@ -196,10 +196,21 @@ async function mountSettings() {
 
     root.find('.si_prompt').val(cfg.prompt).on('change', function () { cfg.prompt = $(this).val(); persist(); });
     root.find('.si_prompt_reset').on('click', async function () {
-        if (await ctx.Popup.show.confirm('기본 프롬프트로 복원할까요?', '초기화')) {
+        if (await ctx.Popup.show.confirm('기본 프롬프트로 복원할까요?', '설정 초기화')) {
             cfg.prompt = INITIAL_PROMPT;
             root.find('.si_prompt').val(INITIAL_PROMPT);
             persist(); toastr.success('프롬프트 초기화됨');
+        }
+    });
+
+    root.find('.si_cache_clear').on('click', async function () {
+        const total = Object.keys(cfg.cache || {}).length;
+        if (!total) { toastr.info('캐시가 없습니다.'); return; }
+        if (await ctx.Popup.show.confirm(`전체 ${total}개 채팅의 추천 캐시를 삭제할까요?`, '캐시 초기화')) {
+            cfg.cache = {};
+            persist();
+            removeBlock();
+            toastr.success('캐시 초기화됨');
         }
     });
 
@@ -648,11 +659,16 @@ function renderBlock() {
 
 function showLoading() {
     removeBlock();
-    const block = $('<div id="si-block" class="si-block si-block-loading"></div>');
+    const block = $('<div id="si-block" class="si-block"></div>');
     block.html(`
-        <div class="si-loading">
-            <div class="si-dots"><span></span><span></span><span></span></div>
-            <span>에피소드 추천 생성 중...</span>
+        <div class="si-block-head">
+            <span class="si-block-title">💡 에피소드 추천</span>
+        </div>
+        <div id="si-cards-area">
+            <div class="si-loading">
+                <div class="si-dots"><span></span><span></span><span></span></div>
+                <span>에피소드 추천 생성 중...</span>
+            </div>
         </div>
     `);
     $('#chat').append(block);
@@ -663,6 +679,9 @@ function showFail(msg) {
     removeBlock();
     const block = $('<div id="si-block" class="si-block"></div>');
     block.html(`
+        <div class="si-block-head">
+            <span class="si-block-title">💡 에피소드 추천</span>
+        </div>
         <div class="si-fail">
             <div class="si-fail-icon">💡</div>
             <div class="si-fail-msg">추천을 가져오지 못했어요</div>
