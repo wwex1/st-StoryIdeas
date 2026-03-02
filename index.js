@@ -84,6 +84,16 @@ function migrate() {
                 changed = true;
             }
         }
+        // Default 프리셋 내용도 새 프롬프트로 업데이트
+        if (cfg.promptPresets['Default'] && cfg.promptPresets['Default'].startsWith('Based on the current roleplay context')) {
+            cfg.promptPresets['Default'] = INITIAL_PROMPT;
+            changed = true;
+        }
+    }
+    // promptPresets가 없으면 Default 하나 생성
+    if (!cfg.promptPresets || Object.keys(cfg.promptPresets).length === 0) {
+        cfg.promptPresets = { 'Default': INITIAL_PROMPT };
+        changed = true;
     }
 
     // 이전 버전 기본 프롬프트 → 새 프롬프트로 교체
