@@ -186,29 +186,6 @@
     to { transform: rotate(360deg); }
 }
 
-/* 에러 */
-.si-err {
-    padding: 14px;
-    text-align: center;
-    color: var(--SmartThemeEmColor);
-    font-size: 0.85em;
-}
-
-.si-err button {
-    margin-top: 6px;
-    padding: 4px 12px;
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--SmartThemeBodyColor);
-    cursor: pointer;
-    font-size: 0.85em;
-}
-
-.si-err button:hover {
-    background: var(--SmartThemeQuoteColor);
-}
-
 /* 재생성 중 오버레이 */
 .si-regen-overlay {
     display: flex;
@@ -218,4 +195,49 @@
     padding: 24px;
     color: var(--SmartThemeBodyColor);
     opacity: 0.6;
+}
+
+/* 생성 실패 */
+.si-fail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 20px;
+    text-align: center;
+}
+
+.si-fail-icon {
+    font-size: 1.8em;
+    opacity: 0.4;
+}
+
+.si-fail-msg {
+    font-size: 0.9em;
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.8;
+}
+
+.si-fail-detail {
+    font-size: 0.75em;
+    color: var(--SmartThemeQuoteColor);
+    opacity: 0.6;
+    max-width: 80%;
+    word-break: break-word;
+}
+
+.si-fail-retry {
+    margin-top: 4px;
+    padding: 6px 16px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+    font-size: 0.82em;
+    transition: background 0.15s;
+}
+
+.si-fail-retry:hover {
+    background: var(--SmartThemeBorderColor);
 }
