@@ -264,7 +264,7 @@ function scrollToBlock() {
 
 // ─── 생성 ───
 
-async function generate() {
+async function generate(isRetry = false) {
     if (generating || !cfg.enabled) return;
 
     if (cfg.apiSource === 'profile' && !cfg.connectionProfileId) {
@@ -277,7 +277,11 @@ async function generate() {
     if (lastBot === -1) { toastr.warning('봇 메시지가 없습니다.'); return; }
 
     generating = true;
-    showLoading();
+
+    // 첫 생성이면 로딩 표시, 재시도면 기존 블록 유지
+    if (!isRetry) {
+        showLoading();
+    }
 
     try {
         const instruction = buildInstruction();
@@ -315,8 +319,11 @@ async function generate() {
 
     } catch (err) {
         console.error(`[${EXT_NAME}]`, err);
-        showError(err.message);
         toastr.error(`추천 생성 실패: ${err.message}`);
+        // 재시도 실패 시 기존 블록 유지, 첫 생성 실패 시만 에러 표시
+        if (!isRetry) {
+            showError(err.message);
+        }
     } finally {
         generating = false;
     }
@@ -543,11 +550,14 @@ function renderBlock(ideas) {
     block.append(cards);
     $('#chat').append(block);
 
-    block.find('.si-do-refresh').on('click', async () => {
+    block.find('.si-do-refresh').on('click', async function () {
         if (generating) return;
+        const btn = $(this);
+        btn.text('⏳').css('pointer-events', 'none');
         const key = chatKey();
         if (key && cfg.cache[key]) { delete cfg.cache[key]; persist(); }
-        await generate();
+        await generate(true);
+        btn.text('🔄').css('pointer-events', 'auto');
     });
 
     block.find('.si-do-delete').on('click', () => {
@@ -582,7 +592,7 @@ function showError(msg) {
         </div>
     `);
     $('#chat').append(block);
-    block.find('.si-err-retry').on('click', () => generate());
+    block.find('.si-err-retry').on('click', () => generate(true));
     scrollToBlock();
 }
 
