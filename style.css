@@ -5,7 +5,6 @@
     padding: 12px;
     border-radius: 12px;
     background: transparent;
-    border-left: 3px solid var(--SmartThemeQuoteColor);
     font-size: var(--messageTextFontSize, var(--mainFontSize));
 }
 
