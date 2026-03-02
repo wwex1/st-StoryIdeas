@@ -796,6 +796,7 @@ function renderBlock(mode) {
 
     nav.append(prevBtn, navLabel, nextBtn);
     right.append(nav);
+    right.append('<button class="si-block-btn si-do-collapse" title="접기/펼치기">▲</button>');
     right.append('<button class="si-block-btn si-do-refresh" title="새로 생성">🔄</button>');
     right.append('<button class="si-block-btn si-do-delete" title="전체 삭제">🗑️</button>');
 
@@ -848,6 +849,12 @@ function renderBlock(mode) {
     cardsWrap.append(cards);
     block.append(cardsWrap);
     $('#chat').append(block);
+
+    block.find('.si-do-collapse').on('click', function () {
+        const area = $('#si-cards-area');
+        area.slideToggle(200);
+        $(this).text(area.is(':visible') ? '▼' : '▲');
+    });
 
     block.find('.si-do-refresh').on('click', async () => {
         if (generating) return;
