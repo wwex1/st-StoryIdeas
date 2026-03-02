@@ -26,10 +26,12 @@ Draw from the characters' personalities, unresolved threads, world details, and 
 
 const CHOICES_PROMPT = `Based on the current roleplay context, generate possible next response options for the user's character.
 
-Each option should be a natural continuation that the user's character might say or do next. Randomly vary the format of each option—some should be:
+Each option should be a natural continuation that the user's character might say or do next. Each option's format should be RANDOMLY chosen from:
 - Narration/action only (describing what the character does, their body language, inner thoughts)
 - Dialogue only (what the character says)
 - Mixed dialogue and narration
+
+The format order must be randomized every time—do NOT follow a fixed pattern like "narration, dialogue, mixed" or any predictable sequence. Any format can appear multiple times or not at all.
 
 Keep options diverse in tone and approach—assertive, hesitant, playful, serious, emotional, practical, etc. Each should feel like a meaningfully different choice that would take the story in a different direction.`;
 
