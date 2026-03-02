@@ -793,7 +793,7 @@ function renderBlock(mode) {
                     <span class="si-idea-num">${i + 1}</span>
                     <span class="si-idea-title">${esc(titleText)}</span>
                 </div>
-                <div class="si-idea-desc">${esc(bodyText)}</div>
+                <div class="si-idea-desc">${esc(bodyText).replace(/\n/g, '<br>')}</div>
                 <div class="si-idea-actions">
                     <button class="si-idea-act si-act-copy" title="복사">📋 복사</button>
                     <button class="si-idea-act si-act-insert" title="입력창에 삽입">✏️ 삽입</button>
