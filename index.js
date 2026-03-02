@@ -381,9 +381,24 @@ function buildInstruction() {
         normal: 'Write 3-5 sentences per description (moderate detail)',
     };
 
+    // 이전 히스토리에서 제목 수집 → 중복 방지
+    let avoidNote = '';
+    const cache = getCache();
+    if (cache && cache.history.length > 0) {
+        const prevTitles = [];
+        for (const ideas of cache.history) {
+            for (const idea of ideas) {
+                if (idea.title) prevTitles.push(idea.title);
+            }
+        }
+        if (prevTitles.length > 0) {
+            avoidNote = `\n\n⚠️ IMPORTANT: The following ideas were already suggested. Do NOT repeat or closely resemble any of them. Come up with completely different ideas:\n${prevTitles.map(t => `- ${t}`).join('\n')}`;
+        }
+    }
+
     return `${ctx.substituteParams(cfg.prompt)}
 
-${langNote}
+${langNote}${avoidNote}
 
 OUTPUT FORMAT - Use this EXACT structure:
 <suggestions>
