@@ -29,12 +29,17 @@ const CHOICES_PROMPT = `Based on the current roleplay context, generate possible
 Each option should be a natural continuation that the user's character might say or do next. Randomly vary the format of each option—some should be:
 - Narration/action only (describing what the character does, their body language, inner thoughts)
 - Dialogue only (what the character says)
-- Mixed dialogue and narration (dialogue followed by action description, MUST separate into distinct paragraphs)
+- Mixed dialogue and narration (MUST be written as separate paragraphs — dialogue in one paragraph, narration in another, with a blank line between them)
+
+CRITICAL FORMAT RULE for mixed dialogue+narration options:
+Dialogue and narration MUST be in separate paragraphs with a blank line between them. Never combine dialogue and narration in the same paragraph.
 
 Keep options diverse in tone and approach—assertive, hesitant, playful, serious, emotional, practical, etc. Each should feel like a meaningfully different choice that would take the story in a different direction.`;
 
 const DEFAULTS = {
     enabled: true,
+    ideasEnabled: true,
+    choicesEnabled: true,
     apiSource: 'main',
     connectionProfileId: '',
     // 에피소드 추천 설정
@@ -153,11 +158,18 @@ async function mountSettings() {
 
     root.find('.si_enabled').prop('checked', cfg.enabled).on('change', function () {
         cfg.enabled = $(this).prop('checked'); persist();
-        const btn1 = document.getElementById('si_menu_btn');
-        const btn2 = document.getElementById('si_choices_btn');
-        if (btn1) btn1.style.display = cfg.enabled ? '' : 'none';
-        if (btn2) btn2.style.display = cfg.enabled ? '' : 'none';
+        updateMenuVisibility();
         toastr.info(cfg.enabled ? 'Story Ideas 활성화됨' : 'Story Ideas 비활성화됨');
+    });
+
+    root.find('.si_ideas_enabled').prop('checked', cfg.ideasEnabled).on('change', function () {
+        cfg.ideasEnabled = $(this).prop('checked'); persist();
+        updateMenuVisibility();
+    });
+
+    root.find('.sc_choices_enabled').prop('checked', cfg.choicesEnabled).on('change', function () {
+        cfg.choicesEnabled = $(this).prop('checked'); persist();
+        updateMenuVisibility();
     });
 
     // 통합 API 소스 드롭다운
@@ -308,6 +320,13 @@ function mountPresetUI(root, selSel, loadSel, saveSel, delSel, getPresets, setPr
 
 // ─── 이벤트 ───
 
+function updateMenuVisibility() {
+    const btn1 = document.getElementById('si_menu_btn');
+    const btn2 = document.getElementById('si_choices_btn');
+    if (btn1) btn1.style.display = (cfg.enabled && cfg.ideasEnabled) ? '' : 'none';
+    if (btn2) btn2.style.display = (cfg.enabled && cfg.choicesEnabled) ? '' : 'none';
+}
+
 function bindEvents() {
     // 에피소드 추천 버튼
     const menuBtn = document.createElement('div');
@@ -315,7 +334,7 @@ function bindEvents() {
     menuBtn.className = 'list-group-item flex-container flexGap5 interactable';
     menuBtn.title = '에피소드 추천';
     menuBtn.innerHTML = '<i class="fa-solid fa-lightbulb"></i> 에피소드 추천';
-    menuBtn.style.display = cfg.enabled ? '' : 'none';
+    menuBtn.style.display = (cfg.enabled && cfg.ideasEnabled) ? '' : 'none';
 
     menuBtn.addEventListener('click', async () => {
         if (!cfg.enabled || generating) return;
@@ -337,7 +356,7 @@ function bindEvents() {
     choicesBtn.className = 'list-group-item flex-container flexGap5 interactable';
     choicesBtn.title = '선택지 생성';
     choicesBtn.innerHTML = '<i class="fa-solid fa-list-check"></i> 선택지 생성';
-    choicesBtn.style.display = cfg.enabled ? '' : 'none';
+    choicesBtn.style.display = (cfg.enabled && cfg.choicesEnabled) ? '' : 'none';
 
     choicesBtn.addEventListener('click', async () => {
         if (!cfg.enabled || generating) return;
@@ -549,7 +568,8 @@ Rules:
 - Exactly ${cfg.choicesCount} choices
 - ${detailMap[cfg.choicesDetail] || detailMap.brief}
 - Each choice starts with [number]
-- Randomly mix: narration only, dialogue only, or dialogue+narration (with paragraph breaks)
+- Randomly mix: narration only, dialogue only, or dialogue+narration
+- When mixing dialogue and narration, ALWAYS separate them with a blank line (different paragraphs)
 - Write as the user's character would actually speak/act
 - Wrap in <choices>...</choices>
 - NO text outside the tags`;
