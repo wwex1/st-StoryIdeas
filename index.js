@@ -12,7 +12,7 @@ const EXT_NAME = 'st-StoryIdeas';
 
 const INITIAL_PROMPT = `Based on the current roleplay context, suggest diverse episode ideas that could naturally follow from the story so far.
 
-Vary the tone and genre of each suggestion—mix and match from possibilities like:
+Each suggestion should mix and vary tone and genre. For example, you may combine elements such as:
 - Lighthearted or comedic moments
 - Emotional or heartfelt scenes
 - Suspenseful or mysterious developments
@@ -22,7 +22,11 @@ Vary the tone and genre of each suggestion—mix and match from possibilities li
 - Romantic or relationship-focused events
 - World-building or lore-expanding episodes
 
-Draw from the characters' personalities, unresolved threads, world details, and recent events. Each idea should feel like a distinct flavor, not just variations of the same mood.`;
+Draw actively from the characters' personalities, unresolved threads, established world details, and recent events.
+
+All episodes must maintain narrative plausibility within the current storyline. Avoid developments that ignore established settings, emotional arcs, or prior events.
+
+Each idea should feel like a distinctly different narrative flavor—not merely tonal variations of the same concept.`;
 
 const CHOICES_PROMPT = `Based on the current roleplay context, generate possible next response options for the user's character.
 
@@ -92,6 +96,56 @@ function getCache(mode) {
         persist();
     }
     return cacheObj[key];
+}
+
+// ─── 복사 유틸 ───
+
+async function copyToClipboard(text) {
+    // 1단계: Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (e) {
+            console.log(`[${EXT_NAME}] clipboard API failed:`, e);
+        }
+    }
+
+    // 2단계: Selection API
+    try {
+        const el = document.createElement('span');
+        el.textContent = text;
+        el.style.cssText = 'position:fixed;left:-9999px;top:-9999px;white-space:pre-wrap;';
+        document.body.appendChild(el);
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        const ok = document.execCommand('copy');
+        sel.removeAllRanges();
+        document.body.removeChild(el);
+        if (ok) return true;
+    } catch (e) {
+        console.log(`[${EXT_NAME}] selection API failed:`, e);
+    }
+
+    // 3단계: textarea fallback
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) return true;
+    } catch (e) {
+        console.log(`[${EXT_NAME}] textarea fallback failed:`, e);
+    }
+
+    return false;
 }
 
 // ─── 부팅 ───
@@ -827,13 +881,9 @@ function renderBlock(mode) {
             </div>
         `);
 
-        card.find('.si-act-copy').on('click', () => {
-            navigator.clipboard.writeText(bodyText).then(() => toastr.success('복사됨')).catch(() => {
-                const ta = document.createElement('textarea');
-                ta.value = bodyText; document.body.appendChild(ta);
-                ta.select(); document.execCommand('copy');
-                document.body.removeChild(ta); toastr.success('복사됨');
-            });
+        card.find('.si-act-copy').on('click', async () => {
+            const ok = await copyToClipboard(bodyText);
+            if (ok) toastr.success('복사됨');
         });
 
         card.find('.si-act-insert').on('click', () => {
