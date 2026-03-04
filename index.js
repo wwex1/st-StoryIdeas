@@ -567,23 +567,50 @@ function showPersonaResult() {
 
     const result = $(`
         <div class="pg-result">
-            <textarea class="pg-result-text pg-result-editable">${esc(text)}</textarea>
+            <div class="pg-result-text">${esc(text)}</div>
+            <textarea class="pg-result-editable" style="display:none;">${esc(text)}</textarea>
             <div class="pg-result-actions">
                 <button class="si-idea-act pg-act-copy">📋 복사</button>
+                <button class="si-idea-act pg-act-edit">✏️ 수정</button>
+                <button class="si-idea-act pg-act-save" style="display:none;">💾 저장</button>
                 <button class="si-idea-act pg-act-translate">🌐 번역</button>
             </div>
         </div>
     `);
 
+    const resultDiv = result.find('.pg-result-text');
     const resultTextarea = result.find('.pg-result-editable');
-    resultTextarea.on('input', () => {
+    const editBtn = result.find('.pg-act-edit');
+    const saveBtn = result.find('.pg-act-save');
+
+    editBtn.on('click', () => {
+        resultDiv.hide();
+        resultTextarea.val(cfg.personaHistory[cfg.personaViewIdx]).show().focus();
+        editBtn.hide();
+        saveBtn.show();
+    });
+
+    saveBtn.on('click', () => {
         const edited = resultTextarea.val();
         cfg.personaHistory[cfg.personaViewIdx] = edited;
         persist();
+        resultDiv.text(edited);
+        resultTextarea.hide();
+        resultDiv.show();
+        saveBtn.hide();
+        editBtn.show();
+        toastr.success('저장됨');
     });
 
-    result.find('.pg-act-copy').on('click', async () => { const ok = await copyToClipboard(resultTextarea.val()); if (ok) toastr.success('복사됨'); });
-    result.find('.pg-act-translate').on('click', () => { translatePersona(resultTextarea.val()); });
+    result.find('.pg-act-copy').on('click', async () => {
+        const current = resultTextarea.is(':visible') ? resultTextarea.val() : cfg.personaHistory[cfg.personaViewIdx];
+        const ok = await copyToClipboard(current);
+        if (ok) toastr.success('복사됨');
+    });
+    result.find('.pg-act-translate').on('click', () => {
+        const current = resultTextarea.is(':visible') ? resultTextarea.val() : cfg.personaHistory[cfg.personaViewIdx];
+        translatePersona(current);
+    });
     block.append(result);
 
     const revise = $(`
