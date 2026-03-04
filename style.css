@@ -1,4 +1,4 @@
-/* Story Ideas */
+/* Story Ideas + Persona Gen */
 
 .si-block {
     margin: 12px 0;
@@ -45,7 +45,7 @@
     opacity: 1;
 }
 
-/* 네비게이션 (◀ 1/3 ▶) */
+/* 네비게이션 */
 .si-nav {
     display: flex;
     align-items: center;
@@ -253,4 +253,136 @@
 .si-fail-btns {
     display: flex;
     gap: 8px;
+}
+
+/* ─── 페르소나 생성 ─── */
+
+.pg-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.pg-form-field {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: 2px;
+}
+
+.pg-form-field small {
+    font-size: 0.75em;
+    color: var(--SmartThemeQuoteColor);
+}
+
+.pg-form-field input,
+.pg-form-field textarea {
+    background: var(--SmartThemeChatTintColor, var(--SmartThemeBlurTintColor));
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.85em;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.pg-form-field input::placeholder,
+.pg-form-field textarea::placeholder {
+    color: var(--SmartThemeQuoteColor);
+    opacity: 0.5;
+}
+
+.pg-form-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82em;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+}
+
+.pg-form-check input[type="checkbox"] {
+    cursor: pointer;
+}
+
+.pg-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.pg-btn {
+    padding: 6px 16px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+    font-size: 0.82em;
+    transition: background 0.15s;
+}
+
+.pg-btn:hover {
+    background: var(--SmartThemeBorderColor);
+}
+
+.pg-btn-primary {
+    background: var(--SmartThemeQuoteColor);
+    color: var(--SmartThemeBlurTintColor);
+    border-color: var(--SmartThemeQuoteColor);
+}
+
+.pg-btn-primary:hover {
+    opacity: 0.85;
+}
+
+.pg-result {
+    background: var(--SmartThemeChatTintColor, var(--SmartThemeBlurTintColor));
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 10px;
+    padding: 14px;
+    margin-top: 8px;
+}
+
+.pg-result-text {
+    font-size: 0.85em;
+    color: var(--SmartThemeBodyColor);
+    line-height: 1.6;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.pg-result-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    justify-content: flex-end;
+}
+
+.pg-revise {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    align-items: flex-end;
+}
+
+.pg-revise textarea {
+    flex: 1;
+    background: var(--SmartThemeChatTintColor, var(--SmartThemeBlurTintColor));
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.82em;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 36px;
+}
+
+.pg-revise textarea::placeholder {
+    color: var(--SmartThemeQuoteColor);
+    opacity: 0.5;
 }
