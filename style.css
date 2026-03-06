@@ -255,6 +255,11 @@
     gap: 8px;
 }
 
+/* 설정 패널 버튼 세로 줄바꿈 방지 */
+.story_ideas_settings .menu_button {
+    white-space: nowrap;
+}
+
 /* ─── 페르소나 생성 ─── */
 
 .pg-form {
