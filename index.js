@@ -112,6 +112,99 @@ function peekCache(mode) {
     return entry;
 }
 
+// ─── 프로필 탐지 ───
+
+function discoverProfiles() {
+    const cmrs = ctx.ConnectionManagerRequestService;
+    if (!cmrs) return [];
+
+    // 알려진 메서드 시도
+    const knownMethods = ['getConnectionProfiles', 'getAllProfiles', 'getProfiles', 'listProfiles'];
+    for (const m of knownMethods) {
+        if (typeof cmrs[m] === 'function') {
+            try {
+                const result = cmrs[m]();
+                if (Array.isArray(result) && result.length) {
+                    console.log(`[${EXT_NAME}] 프로필 발견 via ${m}()`);
+                    return result;
+                }
+            } catch (e) { console.log(`[${EXT_NAME}] ${m}() 실패:`, e); }
+        }
+    }
+
+    // 동적 탐색: 'rofile' 포함 메서드
+    try {
+        const proto = Object.getPrototypeOf(cmrs);
+        const dynamicMethods = Object.getOwnPropertyNames(proto)
+            .filter(k => typeof cmrs[k] === 'function' && /rofile/i.test(k) && !knownMethods.includes(k));
+        for (const m of dynamicMethods) {
+            try {
+                const result = cmrs[m]();
+                if (Array.isArray(result) && result.length) {
+                    console.log(`[${EXT_NAME}] 프로필 발견 via dynamic ${m}()`);
+                    return result;
+                }
+            } catch {}
+        }
+    } catch {}
+
+    // extensionSettings fallback
+    const paths = [
+        ctx.extensionSettings?.connectionManager?.profiles,
+        ctx.extensionSettings?.ConnectionManager?.profiles,
+        ctx.extensionSettings?.connection_manager?.profiles,
+    ];
+    for (const s of paths) {
+        if (!s) continue;
+        const arr = Array.isArray(s) ? s : Object.values(s);
+        if (arr.length) { console.log(`[${EXT_NAME}] 프로필 발견 via extensionSettings fallback`); return arr; }
+    }
+
+    return [];
+}
+
+function getProfileId(p) {
+    return p.id || p.profileId || p.profile_id || p.uuid || '';
+}
+
+function getProfileName(p) {
+    return p.name || p.profileName || p.profile_name || p.displayName || getProfileId(p);
+}
+
+// ─── sendRequest 공통 ───
+
+async function sendProfileRequest(msgs, maxTokens) {
+    const cmrs = ctx.ConnectionManagerRequestService;
+    if (!cmrs) throw new Error('Connection Manager 미로드');
+
+    const optionSets = [
+        { stream: false, extractData: true, includePreset: false, includeInstruct: false },
+        { streaming: false, extractData: true, includePreset: false, includeInstruct: false },
+        { stream: false, extractData: true },
+        { streaming: false },
+    ];
+
+    let lastError = null;
+    for (const opts of optionSets) {
+        try {
+            const resp = await cmrs.sendRequest(cfg.connectionProfileId, msgs, maxTokens, opts);
+            if (typeof resp === 'string') return resp;
+            if (resp?.choices?.[0]?.message) {
+                const m = resp.choices[0].message;
+                return m.reasoning_content || m.content || '';
+            }
+            if (resp?.content) return resp.content;
+            if (resp?.message) return resp.message;
+            // 응답은 왔는데 텍스트 추출 실패 — 다음 옵션 시도
+            lastError = new Error('응답 형식 인식 실패');
+        } catch (e) {
+            lastError = e;
+            console.log(`[${EXT_NAME}] sendRequest 옵션 실패:`, opts, e.message);
+        }
+    }
+    throw new Error(`Profile 오류: ${lastError?.message || '알 수 없는 오류'}`);
+}
+
 // ─── 복사 유틸 ───
 
 async function copyToClipboard(text) {
@@ -222,23 +315,12 @@ async function mountSettings() {
     sourceSelect.empty();
     sourceSelect.append('<option value="main">Main API</option>');
     try {
-        const cmrs = ctx.ConnectionManagerRequestService;
-        let profiles = [];
-        if (cmrs) {
-            if (typeof cmrs.getConnectionProfiles === 'function') profiles = cmrs.getConnectionProfiles() || [];
-            else if (typeof cmrs.getAllProfiles === 'function') profiles = cmrs.getAllProfiles() || [];
-            else if (typeof cmrs.getProfiles === 'function') profiles = cmrs.getProfiles() || [];
-            if (!profiles.length) {
-                const s = ctx.extensionSettings?.connectionManager?.profiles || ctx.extensionSettings?.ConnectionManager?.profiles;
-                if (Array.isArray(s)) profiles = s;
-                else if (s && typeof s === 'object') profiles = Object.values(s);
-            }
-        }
+        const profiles = discoverProfiles();
         console.log(`[${EXT_NAME}] 프로필 ${profiles.length}개 발견`);
         if (profiles.length) {
             profiles.forEach(p => {
-                const id = p.id || p.profileId || '';
-                const name = p.name || p.profileName || id;
+                const id = getProfileId(p);
+                const name = getProfileName(p);
                 if (id) sourceSelect.append(`<option value="profile:${id}">${name}</option>`);
             });
         }
@@ -452,14 +534,7 @@ async function generate(isRetry, mode) {
         } else {
             const msgs = await gatherMessages(lastBot);
             msgs.push({ role: 'user', content: instruction });
-            if (!ctx.ConnectionManagerRequestService) throw new Error('Connection Manager 미로드');
-            const resp = await ctx.ConnectionManagerRequestService.sendRequest(
-                cfg.connectionProfileId, msgs, 4000,
-                { stream: false, extractData: true, includePreset: false, includeInstruct: false },
-            ).catch(e => { throw new Error(`Profile 오류: ${e.message}`); });
-            if (typeof resp === 'string') raw = resp;
-            else if (resp?.choices?.[0]?.message) { const m = resp.choices[0].message; raw = m.reasoning_content || m.content || ''; }
-            else raw = resp?.content || resp?.message || '';
+            raw = await sendProfileRequest(msgs, 4000);
         }
         const items = mode === 'choices' ? parseChoices(raw) : parseIdeas(raw);
         if (!items?.length) throw new Error('파싱 실패');
@@ -661,14 +736,7 @@ async function generatePersona(reviseText) {
             raw = await generateRaw({ systemPrompt: buildPersonaSystemContext(char), prompt: instruction, streaming: false });
         } else {
             const msgs = [{ role: 'system', content: buildPersonaSystemContext(char) }, { role: 'user', content: instruction }];
-            if (!ctx.ConnectionManagerRequestService) throw new Error('Connection Manager 미로드');
-            const resp = await ctx.ConnectionManagerRequestService.sendRequest(
-                cfg.connectionProfileId, msgs, 10000,
-                { stream: false, extractData: true, includePreset: false, includeInstruct: false },
-            ).catch(e => { throw new Error(`Profile 오류: ${e.message}`); });
-            if (typeof resp === 'string') raw = resp;
-            else if (resp?.choices?.[0]?.message) { const m = resp.choices[0].message; raw = m.reasoning_content || m.content || ''; }
-            else raw = resp?.content || resp?.message || '';
+            raw = await sendProfileRequest(msgs, 10000);
         }
 
         const parsed = parsePersonaResult(raw);
@@ -697,14 +765,7 @@ async function translatePersona(sourceText) {
             raw = await generateRaw({ systemPrompt: '', prompt: instruction, streaming: false });
         } else {
             const msgs = [{ role: 'user', content: instruction }];
-            if (!ctx.ConnectionManagerRequestService) throw new Error('Connection Manager 미로드');
-            const resp = await ctx.ConnectionManagerRequestService.sendRequest(
-                cfg.connectionProfileId, msgs, 10000,
-                { stream: false, extractData: true, includePreset: false, includeInstruct: false },
-            ).catch(e => { throw new Error(`Profile 오류: ${e.message}`); });
-            if (typeof resp === 'string') raw = resp;
-            else if (resp?.choices?.[0]?.message) { const m = resp.choices[0].message; raw = m.reasoning_content || m.content || ''; }
-            else raw = resp?.content || resp?.message || '';
+            raw = await sendProfileRequest(msgs, 10000);
         }
 
         const parsed = parsePersonaResult(raw);
