@@ -208,26 +208,12 @@ async function sendProfileRequest(msgs, maxTokens) {
 // ─── 복사 유틸 ───
 
 async function copyToClipboard(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-        try { await navigator.clipboard.writeText(text); return true; } catch (e) {
-            console.log(`[${EXT_NAME}] clipboard API failed:`, e);
-        }
+    // 1순위: Clipboard API
+    if (navigator.clipboard?.writeText) {
+        try { await navigator.clipboard.writeText(text); return true; }
+        catch (e) { console.log(`[${EXT_NAME}] clipboard API failed:`, e); }
     }
-    try {
-        const el = document.createElement('span');
-        el.textContent = text;
-        el.style.cssText = 'position:fixed;left:-9999px;top:-9999px;white-space:pre-wrap;';
-        document.body.appendChild(el);
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-        const ok = document.execCommand('copy');
-        sel.removeAllRanges();
-        document.body.removeChild(el);
-        if (ok) return true;
-    } catch (e) { console.log(`[${EXT_NAME}] selection API failed:`, e); }
+    // 2순위: textarea (순수 텍스트 보장)
     try {
         const ta = document.createElement('textarea');
         ta.value = text;
