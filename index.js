@@ -818,7 +818,22 @@ CRITICAL RULES:
     }
 
     if (reviseText && baseResult) {
-        prompt += `\n\n--- REVISION REQUEST ---\nThe previous output was:\n${baseResult}\n\nPlease revise according to this feedback:\n${reviseText}\n\nGenerate the COMPLETE revised profile, not just the changes.`;
+        prompt += `\n\n--- REVISION REQUEST ---
+
+## Critical Rules
+- Your ONLY task is to apply the specific changes requested below to the existing profile.
+- Do NOT alter, rephrase, reword, or "improve" any part that is NOT mentioned in the feedback.
+- Sections, sentences, and details not referenced in the feedback must remain EXACTLY as they are — same wording, same structure, same values.
+- Do NOT reorganize, reformat, or restructure the profile layout.
+- Output the COMPLETE profile with ONLY the requested changes applied.
+
+## Previous Profile
+${baseResult}
+
+## Requested Changes
+${reviseText}
+
+Remember: Apply ONLY the requested changes above. Every other part of the profile must stay identical to the previous version. If in doubt whether something should change, keep the original.`;
     }
 
     prompt += `\n\nOUTPUT FORMAT:\n- Output ONLY the character profile/description itself\n- Do NOT include any explanation, commentary, or meta text\n- Do NOT wrap in code blocks or tags\n- Match {{char}}'s description format exactly`;
