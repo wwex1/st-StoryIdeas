@@ -4,7 +4,7 @@
  */
 
 import { event_types } from '../../../events.js';
-import { getCurrentChatId, user_avatar } from '../../../../script.js';
+import { getCurrentChatId, user_avatar, generateQuietPrompt } from '../../../../script.js';
 import { power_user } from '../../../power-user.js';
 import { getWorldInfoPrompt } from '../../../world-info.js';
 
@@ -190,107 +190,6 @@ function getProfileName(p) {
 function findProfileById(id) {
     const profiles = discoverProfiles();
     return profiles.find(p => getProfileId(p) === id);
-}
-
-// ─── 프리셋에서 활성 system 프롬프트 추출 ───
-
-function extractActivePromptsFromPreset(presetData) {
-    if (!presetData) return '';
-
-    // Chat Completion 프리셋: prompts 배열 + prompt_order
-    if (Array.isArray(presetData.prompts)) {
-        // 활성화된 prompt identifier 모음
-        let activeIds = null;
-        if (Array.isArray(presetData.prompt_order)) {
-            // prompt_order는 보통 캐릭터별로 [{character_id, order: [{identifier, enabled}]}] 형태
-            // 활성 캐릭터 매칭 시도, 없으면 첫 번째 사용
-            let order = null;
-            const charId = ctx.characterId;
-            for (const po of presetData.prompt_order) {
-                if (po.character_id == charId) { order = po.order; break; }
-            }
-            if (!order && presetData.prompt_order.length > 0) {
-                order = presetData.prompt_order[0]?.order || presetData.prompt_order[0];
-            }
-            if (Array.isArray(order)) {
-                activeIds = new Set(order.filter(o => o.enabled !== false).map(o => o.identifier));
-            }
-        }
-
-        const parts = [];
-        for (const p of presetData.prompts) {
-            if (!p || !p.content) continue;
-            // marker 프롬프트(chatHistory, worldInfoBefore 같은)는 본문 없음 — 스킵
-            if (p.marker) continue;
-            // system 역할만 (또는 role 없으면 system으로 간주)
-            const role = p.role || 'system';
-            if (role !== 'system') continue;
-            // 활성 체크
-            if (activeIds && !activeIds.has(p.identifier)) continue;
-            // injection_position이 있고 in-chat이면 스킵 (in-prompt만)
-            if (p.injection_position === 1) continue;
-            const content = String(p.content).trim();
-            if (!content) continue;
-            parts.push(content);
-        }
-        return parts.join('\n\n');
-    }
-
-    // Text Completion 프리셋: 단일 system_prompt 또는 instruct 형태
-    if (presetData.system_prompt) return String(presetData.system_prompt).trim();
-
-    return '';
-}
-
-function getCurrentPresetPrompts() {
-    try {
-        // Connection Profile 사용 시: 그 프로필이 참조하는 프리셋
-        if (cfg.apiSource === 'profile' && cfg.connectionProfileId) {
-            const profile = findProfileById(cfg.connectionProfileId);
-            if (!profile) return '';
-            const presetName = profile.preset || profile.preset_name;
-            const apiType = profile.api || profile['api-type'] || 'openai';
-            if (!presetName) return '';
-            try {
-                const mgr = ctx.getPresetManager?.(apiType);
-                if (!mgr) return '';
-                // 메서드 이름이 버전마다 다를 수 있어서 후보 시도
-                const candidates = ['getCompletionPresetByName', 'findPreset', 'getPreset'];
-                for (const m of candidates) {
-                    if (typeof mgr[m] === 'function') {
-                        const data = mgr[m](presetName);
-                        if (data) return extractActivePromptsFromPreset(data);
-                    }
-                }
-                // fallback: presets 배열에서 직접 찾기
-                if (Array.isArray(mgr.presets)) {
-                    const idx = mgr.preset_names?.indexOf?.(presetName);
-                    if (idx >= 0) return extractActivePromptsFromPreset(mgr.presets[idx]);
-                }
-            } catch (e) { console.log(`[${EXT_NAME}] 프리셋 매니저 접근 실패:`, e); }
-            return '';
-        }
-
-        // Main API 사용 시: 현재 활성 프리셋
-        try {
-            const mgr = ctx.getPresetManager?.();
-            if (!mgr) return '';
-            // 현재 프리셋 가져오기
-            const candidates = ['getCompletionPresetByName', 'getCurrentPreset', 'getSelectedPreset'];
-            for (const m of candidates) {
-                if (typeof mgr[m] === 'function') {
-                    const data = mgr[m]();
-                    if (data) return extractActivePromptsFromPreset(data);
-                }
-            }
-            // fallback: oai_settings 직접 사용
-            const settings = ctx.chatCompletionSettings || ctx.oai_settings;
-            if (settings) return extractActivePromptsFromPreset(settings);
-        } catch (e) { console.log(`[${EXT_NAME}] 현재 프리셋 접근 실패:`, e); }
-    } catch (e) {
-        console.log(`[${EXT_NAME}] getCurrentPresetPrompts 오류:`, e);
-    }
-    return '';
 }
 
 // ─── sendRequest 공통 ───
@@ -1032,8 +931,6 @@ function showGreetingForm() {
         `<button type="button" class="gg-chip ${selectedTones.has(t.id) ? 'gg-chip-active' : ''}" data-id="${t.id}">${t.label}</button>`
     ).join('');
 
-    const lengthVal = greetingInputs.length || 'normal';
-
     const form = $(`
         <div class="pg-form">
             <div class="pg-form-field">
@@ -1044,14 +941,6 @@ function showGreetingForm() {
                 <small>분위기/톤 (다중 선택 가능, 비워두면 랜덤)</small>
                 <div class="gg-chips">${toneChips}</div>
                 <input type="text" class="gg-input-tone-custom" placeholder="추가 톤 자유 입력 (선택)" value="${esc(greetingInputs.toneCustom || '')}" style="margin-top:4px;" />
-            </div>
-            <div class="pg-form-field">
-                <small>길이</small>
-                <select class="gg-input-length text_pole">
-                    <option value="short" ${lengthVal === 'short' ? 'selected' : ''}>짧게 (~300자)</option>
-                    <option value="normal" ${lengthVal === 'normal' ? 'selected' : ''}>보통 (500-800자)</option>
-                    <option value="long" ${lengthVal === 'long' ? 'selected' : ''}>길게 (1000자+)</option>
-                </select>
             </div>
             <div class="pg-form-actions">
                 <button class="si-block-btn pg-btn-cancel">취소</button>
@@ -1073,7 +962,6 @@ function showGreetingForm() {
             situation: form.find('.gg-input-situation').val().trim(),
             tones: Array.from(selectedTones),
             toneCustom: form.find('.gg-input-tone-custom').val().trim(),
-            length: form.find('.gg-input-length').val(),
         };
         generateGreeting(null);
     });
@@ -1185,7 +1073,6 @@ function showGreetingResult() {
 
 async function generateGreeting(reviseText) {
     if (generating) return;
-    if (cfg.apiSource === 'profile' && !cfg.connectionProfileId) { toastr.warning('Connection Profile을 선택하세요.'); return; }
     const char = getCharacterData();
     if (!char) { toastr.warning('캐릭터가 선택되지 않았습니다.'); return; }
 
@@ -1194,18 +1081,11 @@ async function generateGreeting(reviseText) {
 
     try {
         const baseResult = reviseText && cfg.greetingHistory.length > 0 ? cfg.greetingHistory[cfg.greetingViewIdx] : null;
-        const sysContext = await buildGreetingSystemContext(char);
-        const instruction = buildGreetingPrompt(char, greetingInputs, reviseText, baseResult);
-        let raw = '';
+        const quietPrompt = buildGreetingQuietPrompt(char, greetingInputs, reviseText, baseResult);
 
-        if (cfg.apiSource === 'main') {
-            const { generateRaw } = ctx;
-            if (!generateRaw) throw new Error('generateRaw not available');
-            raw = await generateRaw({ systemPrompt: sysContext, prompt: instruction, streaming: false });
-        } else {
-            const msgs = [{ role: 'system', content: sysContext }, { role: 'user', content: instruction }];
-            raw = await sendProfileRequest(msgs, 10000);
-        }
+        // generateQuietPrompt: 현재 활성 프리셋 + 캐릭터 카드 + 페르소나 + 월드인포 + 채팅 히스토리 자동 포함
+        // 우리는 OOC 지시문(그리팅 생성 요청)만 넘기면 됨
+        const raw = await generateQuietPrompt({ quietPrompt, quietToLoud: true });
 
         const parsed = parseGreetingResult(raw);
         if (!parsed) throw new Error('파싱 실패');
@@ -1225,70 +1105,13 @@ function showGreetingLoading(msg) {
     $('#chat').append(block); scrollToBlock();
 }
 
-async function buildGreetingSystemContext(char) {
-    let t = '';
-
-    // 1. 프리셋 활성 system 프롬프트 (톤/언어/시점 가이드)
-    const presetPrompts = getCurrentPresetPrompts();
-    if (presetPrompts) {
-        t += '=== PRESET SYSTEM PROMPTS (style/language/tone reference) ===\n';
-        t += presetPrompts + '\n\n';
-    }
-
-    // 2. 캐릭터 카드 전체
-    t += '=== CHARACTER ===\n';
-    if (char.name) t += `Name: ${char.name}\n`;
-    if (char.description) t += `\nDescription:\n${char.description}\n`;
-    if (char.personality) t += `\nPersonality:\n${char.personality}\n`;
-    if (char.scenario) t += `\nScenario:\n${char.scenario}\n`;
-    // 캐릭터 로어북
-    try {
-        const c = SillyTavern.getContext(); const ch = c.characters?.[c.characterId];
-        if (ch) {
-            const d = ch.data || ch;
-            if (d.creator_notes) t += `\nCreator Notes:\n${d.creator_notes}\n`;
-            if (d.character_book?.entries) {
-                const entries = Object.values(d.character_book.entries);
-                if (entries.length) {
-                    t += `\n\nCharacter Lore (${entries.length} entries):\n`;
-                    entries.forEach(e => { if (e.content) t += `- ${e.content}\n`; });
-                }
-            }
-        }
-    } catch {}
-    t += '\n';
-
-    // 3. 페르소나
-    const persona = getPersona();
-    if (persona) t += '=== USER PERSONA ===\n' + persona + '\n\n';
-
-    // 4. 월드인포 (현재 채팅 기반)
-    try {
-        const lore = await getLore();
-        if (lore) t += '=== LOREBOOK ===\n' + lore + '\n\n';
-    } catch {}
-
-    // 5. 기존 그리팅 (회피용)
-    const existingGreetings = [];
-    if (char.first_mes) existingGreetings.push(char.first_mes);
-    if (Array.isArray(char.alternate_greetings)) {
-        for (const g of char.alternate_greetings) { if (g) existingGreetings.push(g); }
-    }
-    if (existingGreetings.length) {
-        t += '=== EXISTING GREETINGS (DO NOT REPEAT THESE — create something different) ===\n';
-        existingGreetings.forEach((g, i) => { t += `--- Greeting ${i + 1} ---\n${g}\n\n`; });
-    }
-
-    return t.trim();
-}
-
-function buildGreetingPrompt(char, inputs, reviseText, baseResult) {
-    const lengthMap = {
-        short: 'around 300 characters (concise)',
-        normal: 'around 500-800 characters (moderate)',
-        long: '1000+ characters (extended, immersive)',
-    };
-
+/**
+ * 그리팅 생성용 통합 프롬프트.
+ * generateQuietPrompt는 활성 프리셋 + 캐릭터/페르소나/월드인포를 자동 포함하므로,
+ * 여기엔 그리팅 생성에만 필요한 추가 정보(기존 그리팅 회피용)와 지시문만 넣는다.
+ * 길이/문체는 활성 프리셋에 정의된 규칙을 그대로 따른다.
+ */
+function buildGreetingQuietPrompt(char, inputs, reviseText, baseResult) {
     // 톤 조합
     let toneStr = '';
     const toneLabels = (inputs.tones || []).map(id => {
@@ -1298,10 +1121,26 @@ function buildGreetingPrompt(char, inputs, reviseText, baseResult) {
     if (toneLabels.length) toneStr += toneLabels.join(', ');
     if (inputs.toneCustom) toneStr += (toneStr ? ', ' : '') + inputs.toneCustom;
 
-    let prompt = `You are writing a new greeting (first message / opening scene) for the character {{char}} for use in a SillyTavern roleplay.
+    // 기존 그리팅 (회피용)
+    const existingGreetings = [];
+    if (char.first_mes) existingGreetings.push(char.first_mes);
+    if (Array.isArray(char.alternate_greetings)) {
+        for (const g of char.alternate_greetings) { if (g) existingGreetings.push(g); }
+    }
+    let existingBlock = '';
+    if (existingGreetings.length) {
+        existingBlock = '\n<existing_greetings note="DO NOT REPEAT THESE — create something different">\n';
+        existingGreetings.forEach((g, i) => { existingBlock += `--- Greeting ${i + 1} ---\n${g}\n\n`; });
+        existingBlock += '</existing_greetings>\n';
+    }
+
+    let prompt = `<greeting_generation_directive priority="critical">
+This is an OOC (out-of-character) request to generate a NEW greeting (first message / opening scene) for {{char}}, for use as an alternate greeting in SillyTavern.
+
+This is NOT a regular roleplay turn. Do NOT continue the current conversation.
 
 CRITICAL RULES:
-1. ANALYZE the existing greetings in the system context carefully. Match their:
+1. ANALYZE the existing greetings below carefully. Match their:
    - LANGUAGE (write in the same language as the existing greetings)
    - NARRATIVE STYLE (point of view, tense, prose vs. dialogue ratio)
    - FORMATTING conventions (asterisks for actions, italics, quotation marks, etc.)
@@ -1309,32 +1148,26 @@ CRITICAL RULES:
 2. Use {{user}} and {{char}} placeholders — do NOT use real names. SillyTavern will substitute them.
 3. Create a NEW situation that is meaningfully DIFFERENT from all existing greetings. Do not repeat or closely mirror their setup, opening lines, or scene structure.
 4. The greeting must end at a natural pause point that invites {{user}}'s response — do not write {{user}}'s reply or actions.
-5. Stay grounded in {{char}}'s established world, personality, and speech patterns from the character card.
-6. The greeting should set up an opening scene that {{user}} can naturally engage with.
-7. If the system context contains preset/style instructions (narration style, tense, register, etc.), follow them.
-
-LENGTH: ${lengthMap[inputs.length] || lengthMap.normal}
-
-`;
+5. Stay grounded in {{char}}'s established world, personality, and speech patterns.
+6. Follow ALL narration style/tense/register/length rules from the active preset/system prompts.
+</greeting_generation_directive>
+${existingBlock}`;
 
     // 시작 상황
     if (inputs.situation) {
-        prompt += `STARTING SITUATION (use this as the setup):\n${inputs.situation}\n\n`;
+        prompt += `\n<starting_situation>\n${inputs.situation}\n</starting_situation>\n`;
     } else {
-        prompt += `STARTING SITUATION: Choose a fitting, fresh scenario at random — something natural for this character and world, but distinctly different from existing greetings.\n\n`;
+        prompt += `\n<starting_situation>\nChoose a fitting, fresh scenario at random — something natural for this character and world, but distinctly different from existing greetings.\n</starting_situation>\n`;
     }
 
     // 톤
     if (toneStr) {
-        prompt += `MOOD/TONE: ${toneStr}\n\n`;
-    } else {
-        prompt += `MOOD/TONE: Choose freely, whatever fits the character and situation best.\n\n`;
+        prompt += `\n<mood_tone>\n${toneStr}\n</mood_tone>\n`;
     }
 
     // 수정 모드
     if (reviseText && baseResult) {
-        prompt += `--- REVISION REQUEST ---
-
+        prompt += `\n<revision_request>
 ## Critical Rules
 - Your ONLY task is to apply the specific changes requested below to the existing greeting.
 - Do NOT alter, rephrase, reword, or "improve" any part that is NOT mentioned in the feedback.
@@ -1348,16 +1181,17 @@ ${baseResult}
 ${reviseText}
 
 Remember: Apply ONLY the requested changes above. Every other part must stay identical.
-
+</revision_request>
 `;
     }
 
-    prompt += `OUTPUT FORMAT:
+    prompt += `\n<output_format>
 - Output ONLY the greeting text itself
 - Do NOT include any explanation, commentary, header, or meta text
 - Do NOT wrap in code blocks, quotes, or tags
 - Do NOT include "Greeting:" or any label
-- Use {{user}} and {{char}} placeholders where appropriate`;
+- Use {{user}} and {{char}} placeholders where appropriate
+</output_format>`;
 
     return prompt;
 }
