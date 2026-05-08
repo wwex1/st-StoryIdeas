@@ -1140,7 +1140,7 @@ function buildGreetingQuietPrompt(char, inputs, reviseText, baseResult) {
     }
 
     let prompt = `<greeting_generation_directive priority="critical">
-This is an OOC (out-of-character) request to generate a NEW greeting (first message / opening scene) for {{char}}, for use as an alternate greeting in SillyTavern.
+This is an OOC (out-of-character) request to generate a NEW greeting (first message / opening scene) for the character, for use as an alternate greeting in SillyTavern.
 
 This is NOT a regular roleplay turn. Do NOT continue the current conversation.
 
@@ -1149,12 +1149,11 @@ CRITICAL RULES:
    - LANGUAGE (write in the same language as the existing greetings)
    - NARRATIVE STYLE (point of view, tense, prose vs. dialogue ratio)
    - FORMATTING conventions (asterisks for actions, italics, quotation marks, etc.)
-   - TONE/VOICE consistent with {{char}}'s personality
-2. Use {{user}} and {{char}} placeholders — do NOT use real names. SillyTavern will substitute them.
-3. Create a NEW situation that is meaningfully DIFFERENT from all existing greetings. Do not repeat or closely mirror their setup, opening lines, or scene structure.
-4. The greeting must end at a natural pause point that invites {{user}}'s response — do not write {{user}}'s reply or actions.
-5. Stay grounded in {{char}}'s established world, personality, and speech patterns.
-6. Follow ALL narration style/tense/register/length rules from the active preset/system prompts.
+   - TONE/VOICE consistent with the character's personality
+2. Create a NEW situation that is meaningfully DIFFERENT from all existing greetings. Do not repeat or closely mirror their setup, opening lines, or scene structure.
+3. The greeting must end at a natural pause point that invites the user's response — do not write the user's reply or actions.
+4. Stay grounded in the character's established world, personality, and speech patterns.
+5. Follow ALL narration style/tense/register/length rules from the active preset/system prompts.
 </greeting_generation_directive>
 ${existingBlock}`;
 
@@ -1195,7 +1194,6 @@ Remember: Apply ONLY the requested changes above. Every other part must stay ide
 - Do NOT include any explanation, commentary, header, or meta text
 - Do NOT wrap in code blocks, quotes, or tags
 - Do NOT include "Greeting:" or any label
-- Use {{user}} and {{char}} placeholders where appropriate
 </output_format>`;
 
     return prompt;
@@ -1249,6 +1247,16 @@ function parseGreetingResult(raw) {
     text = text.replace(/^<[^>]+>\s*/i, '').replace(/\s*<\/[^>]+>$/i, '');
     // 흔한 라벨 제거
     text = text.replace(/^(Greeting|First Message|First Mes)\s*[:：]\s*\n?/i, '');
+
+    // 플레이스홀더 후처리: LLM이 그래도 뱉었다면 실제 이름으로 치환
+    try {
+        const c = SillyTavern.getContext();
+        const charName = c.name2 || c.characters?.[c.characterId]?.name || '';
+        const userName = (user_avatar && power_user?.personas?.[user_avatar]) || power_user?.name || c.name1 || '';
+        if (charName) text = text.replace(/\{\{char\}\}/gi, charName);
+        if (userName) text = text.replace(/\{\{user\}\}/gi, userName);
+    } catch {}
+
     return text.trim() || null;
 }
 
