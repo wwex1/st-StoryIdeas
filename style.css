@@ -1,4 +1,4 @@
-/* Story Ideas + Persona Gen */
+/* Story Ideas + Persona Gen + Greeting Gen */
 
 .si-block {
     margin: 12px 0;
@@ -282,7 +282,8 @@
 }
 
 .pg-form-field input,
-.pg-form-field textarea {
+.pg-form-field textarea,
+.pg-form-field select {
     background: var(--SmartThemeChatTintColor, var(--SmartThemeBlurTintColor));
     border: 1px solid var(--SmartThemeBorderColor);
     border-radius: 6px;
@@ -407,4 +408,43 @@ textarea.pg-result-editable {
 .pg-revise textarea::placeholder {
     color: var(--SmartThemeQuoteColor);
     opacity: 0.5;
+}
+
+/* ─── 그리팅 생성: 톤 칩 ─── */
+
+.gg-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.gg-chip {
+    background: transparent;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 14px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 0.78em;
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.7;
+    transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+    font-family: inherit;
+}
+
+.gg-chip:hover {
+    opacity: 1;
+    background: var(--SmartThemeBorderColor);
+}
+
+.gg-chip-active {
+    opacity: 1;
+    background: var(--SmartThemeQuoteColor);
+    color: var(--SmartThemeBlurTintColor);
+    border-color: var(--SmartThemeQuoteColor);
+}
+
+.gg-chip-active:hover {
+    opacity: 0.9;
+    background: var(--SmartThemeQuoteColor);
 }
