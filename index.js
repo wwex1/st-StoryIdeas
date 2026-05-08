@@ -4,7 +4,7 @@
  */
 
 import { event_types } from '../../../events.js';
-import { getCurrentChatId, user_avatar, generateQuietPrompt } from '../../../../script.js';
+import { getCurrentChatId, user_avatar, generateQuietPrompt, doNewChat, chat, printMessages, saveChatConditional } from '../../../../script.js';
 import { power_user } from '../../../power-user.js';
 import { getWorldInfoPrompt } from '../../../world-info.js';
 
@@ -1010,6 +1010,7 @@ function showGreetingResult() {
                 <button class="si-idea-act gg-act-copy">📋 복사</button>
                 <button class="si-idea-act gg-act-edit">✏️ 수정</button>
                 <button class="si-idea-act gg-act-save" style="display:none;">💾 저장</button>
+                <button class="si-idea-act gg-act-newchat">💬 새 챗 시작</button>
             </div>
         </div>
     `);
@@ -1042,6 +1043,10 @@ function showGreetingResult() {
         const current = resultTextarea.is(':visible') ? resultTextarea.val() : cfg.greetingHistory[cfg.greetingViewIdx];
         const ok = await copyToClipboard(current);
         if (ok) toastr.success('복사됨');
+    });
+    result.find('.gg-act-newchat').on('click', async () => {
+        const current = resultTextarea.is(':visible') ? resultTextarea.val() : cfg.greetingHistory[cfg.greetingViewIdx];
+        await startNewChatWithGreeting(current);
     });
     block.append(result);
 
@@ -1194,6 +1199,47 @@ Remember: Apply ONLY the requested changes above. Every other part must stay ide
 </output_format>`;
 
     return prompt;
+}
+
+async function startNewChatWithGreeting(greetingText) {
+    if (!greetingText || !greetingText.trim()) { toastr.warning('그리팅 내용이 비어있습니다.'); return; }
+    try {
+        const c = SillyTavern.getContext();
+        const charName = c.name2 || c.characters?.[c.characterId]?.name;
+        if (!charName) { toastr.warning('캐릭터가 선택되지 않았습니다.'); return; }
+
+        await doNewChat();
+
+        // 새 챗의 첫 메시지(기본 그리팅)를 생성된 그리팅으로 교체
+        // swipes에도 함께 넣어서 SillyTavern UI와 일관되게
+        if (chat.length > 0) {
+            chat[0].mes = greetingText;
+            chat[0].swipes = [greetingText];
+            chat[0].swipe_id = 0;
+            // 기존 swipe_info 같은 메타가 있으면 제거 (구버전 swipe와 충돌 방지)
+            if (chat[0].swipe_info) chat[0].swipe_info = [{}];
+        } else {
+            // 만일 빈 채팅이면 직접 push
+            chat.push({
+                name: charName,
+                is_user: false,
+                is_system: false,
+                send_date: new Date().toISOString(),
+                mes: greetingText,
+                swipes: [greetingText],
+                swipe_id: 0,
+                extra: {},
+            });
+        }
+
+        await saveChatConditional();
+        await printMessages();
+        removeBlock();
+        toastr.success('그리팅으로 새 챗이 시작되었습니다.');
+    } catch (err) {
+        console.error(`[${EXT_NAME}]`, err);
+        toastr.error(`새 챗 시작 실패: ${err.message}`);
+    }
 }
 
 function parseGreetingResult(raw) {
