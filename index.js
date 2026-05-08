@@ -1,6 +1,6 @@
 /**
- * Story Ideas - Episode Suggestion, Response Choices & Persona Gen for SillyTavern
- * 에피소드 추천 + 선택지 생성 + 페르소나 생성 (트리플 모드)
+ * Story Ideas - Episode Suggestion, Response Choices, Persona & Greeting Gen for SillyTavern
+ * 에피소드 추천 + 선택지 생성 + 페르소나 생성 + 그리팅 생성 (쿼드 모드)
  */
 
 import { event_types } from '../../../events.js';
@@ -43,11 +43,23 @@ Keep options diverse in tone and approach—assertive, hesitant, playful, seriou
 
 Write narration in third-person past tense (e.g. ~했다, ~였다). Never use ~했습니다/~였습니다 style in narration.`;
 
+const TONE_PRESETS = [
+    { id: 'calm', label: '잔잔함/따뜻함' },
+    { id: 'tense', label: '긴장감/서스펜스' },
+    { id: 'romantic', label: '로맨틱/설렘' },
+    { id: 'comic', label: '코믹/가벼움' },
+    { id: 'serious', label: '진지함/무거움' },
+    { id: 'mystical', label: '신비로움/몽환적' },
+    { id: 'sad', label: '슬픔/우울' },
+    { id: 'daily', label: '일상적/평범' },
+];
+
 const DEFAULTS = {
     enabled: true,
     ideasEnabled: true,
     choicesEnabled: true,
     personaEnabled: true,
+    greetingEnabled: true,
     apiSource: 'main',
     connectionProfileId: '',
     // 에피소드 추천 설정
@@ -69,13 +81,17 @@ const DEFAULTS = {
     personaDetail: 'normal',
     personaHistory: [],
     personaViewIdx: -1,
+    // 그리팅 생성 설정
+    greetingHistory: [],
+    greetingViewIdx: -1,
 };
 
-let activeMode = 'ideas'; // 'ideas' | 'choices' | 'persona'
+let activeMode = 'ideas'; // 'ideas' | 'choices' | 'persona' | 'greeting'
 let cfg = {};
 let ctx = null;
 let generating = false;
 let personaInputs = {};
+let greetingInputs = {};
 
 function persist() { ctx.saveSettingsDebounced(); }
 
@@ -169,6 +185,112 @@ function getProfileId(p) {
 
 function getProfileName(p) {
     return p.name || p.profileName || p.profile_name || p.displayName || getProfileId(p);
+}
+
+function findProfileById(id) {
+    const profiles = discoverProfiles();
+    return profiles.find(p => getProfileId(p) === id);
+}
+
+// ─── 프리셋에서 활성 system 프롬프트 추출 ───
+
+function extractActivePromptsFromPreset(presetData) {
+    if (!presetData) return '';
+
+    // Chat Completion 프리셋: prompts 배열 + prompt_order
+    if (Array.isArray(presetData.prompts)) {
+        // 활성화된 prompt identifier 모음
+        let activeIds = null;
+        if (Array.isArray(presetData.prompt_order)) {
+            // prompt_order는 보통 캐릭터별로 [{character_id, order: [{identifier, enabled}]}] 형태
+            // 활성 캐릭터 매칭 시도, 없으면 첫 번째 사용
+            let order = null;
+            const charId = ctx.characterId;
+            for (const po of presetData.prompt_order) {
+                if (po.character_id == charId) { order = po.order; break; }
+            }
+            if (!order && presetData.prompt_order.length > 0) {
+                order = presetData.prompt_order[0]?.order || presetData.prompt_order[0];
+            }
+            if (Array.isArray(order)) {
+                activeIds = new Set(order.filter(o => o.enabled !== false).map(o => o.identifier));
+            }
+        }
+
+        const parts = [];
+        for (const p of presetData.prompts) {
+            if (!p || !p.content) continue;
+            // marker 프롬프트(chatHistory, worldInfoBefore 같은)는 본문 없음 — 스킵
+            if (p.marker) continue;
+            // system 역할만 (또는 role 없으면 system으로 간주)
+            const role = p.role || 'system';
+            if (role !== 'system') continue;
+            // 활성 체크
+            if (activeIds && !activeIds.has(p.identifier)) continue;
+            // injection_position이 있고 in-chat이면 스킵 (in-prompt만)
+            if (p.injection_position === 1) continue;
+            const content = String(p.content).trim();
+            if (!content) continue;
+            parts.push(content);
+        }
+        return parts.join('\n\n');
+    }
+
+    // Text Completion 프리셋: 단일 system_prompt 또는 instruct 형태
+    if (presetData.system_prompt) return String(presetData.system_prompt).trim();
+
+    return '';
+}
+
+function getCurrentPresetPrompts() {
+    try {
+        // Connection Profile 사용 시: 그 프로필이 참조하는 프리셋
+        if (cfg.apiSource === 'profile' && cfg.connectionProfileId) {
+            const profile = findProfileById(cfg.connectionProfileId);
+            if (!profile) return '';
+            const presetName = profile.preset || profile.preset_name;
+            const apiType = profile.api || profile['api-type'] || 'openai';
+            if (!presetName) return '';
+            try {
+                const mgr = ctx.getPresetManager?.(apiType);
+                if (!mgr) return '';
+                // 메서드 이름이 버전마다 다를 수 있어서 후보 시도
+                const candidates = ['getCompletionPresetByName', 'findPreset', 'getPreset'];
+                for (const m of candidates) {
+                    if (typeof mgr[m] === 'function') {
+                        const data = mgr[m](presetName);
+                        if (data) return extractActivePromptsFromPreset(data);
+                    }
+                }
+                // fallback: presets 배열에서 직접 찾기
+                if (Array.isArray(mgr.presets)) {
+                    const idx = mgr.preset_names?.indexOf?.(presetName);
+                    if (idx >= 0) return extractActivePromptsFromPreset(mgr.presets[idx]);
+                }
+            } catch (e) { console.log(`[${EXT_NAME}] 프리셋 매니저 접근 실패:`, e); }
+            return '';
+        }
+
+        // Main API 사용 시: 현재 활성 프리셋
+        try {
+            const mgr = ctx.getPresetManager?.();
+            if (!mgr) return '';
+            // 현재 프리셋 가져오기
+            const candidates = ['getCompletionPresetByName', 'getCurrentPreset', 'getSelectedPreset'];
+            for (const m of candidates) {
+                if (typeof mgr[m] === 'function') {
+                    const data = mgr[m]();
+                    if (data) return extractActivePromptsFromPreset(data);
+                }
+            }
+            // fallback: oai_settings 직접 사용
+            const settings = ctx.chatCompletionSettings || ctx.oai_settings;
+            if (settings) return extractActivePromptsFromPreset(settings);
+        } catch (e) { console.log(`[${EXT_NAME}] 현재 프리셋 접근 실패:`, e); }
+    } catch (e) {
+        console.log(`[${EXT_NAME}] getCurrentPresetPrompts 오류:`, e);
+    }
+    return '';
 }
 
 // ─── sendRequest 공통 ───
@@ -295,6 +417,9 @@ async function mountSettings() {
     root.find('.sp_persona_enabled').prop('checked', cfg.personaEnabled).on('change', function () {
         cfg.personaEnabled = $(this).prop('checked'); persist(); updateMenuVisibility();
     });
+    root.find('.sg_greeting_enabled').prop('checked', cfg.greetingEnabled).on('change', function () {
+        cfg.greetingEnabled = $(this).prop('checked'); persist(); updateMenuVisibility();
+    });
 
     // API 소스
     const sourceSelect = root.find('.si_source');
@@ -377,15 +502,28 @@ async function mountSettings() {
         }
     });
 
+    // ─── 그리팅 생성 탭 ───
+    root.find('.sg_cache_clear').on('click', async function () {
+        const total = cfg.greetingHistory?.length || 0;
+        if (!total) { toastr.info('캐시가 없습니다.'); return; }
+        if (await ctx.Popup.show.confirm(`그리팅 캐시 ${total}건을 삭제할까요?`, '캐시 초기화')) {
+            cfg.greetingHistory = []; cfg.greetingViewIdx = -1; persist();
+            if (activeMode === 'greeting') removeBlock(); toastr.success('그리팅 캐시 초기화됨');
+        }
+    });
+
     // ─── 전체 캐시 초기화 ───
     root.find('.si_all_cache_clear').on('click', async function () {
         const c1 = Object.keys(cfg.cache || {}).length;
         const c2 = Object.keys(cfg.choicesCache || {}).length;
         const c3 = cfg.personaHistory?.length || 0;
-        const total = c1 + c2 + c3;
+        const c4 = cfg.greetingHistory?.length || 0;
+        const total = c1 + c2 + c3 + c4;
         if (!total) { toastr.info('캐시가 없습니다.'); return; }
-        if (await ctx.Popup.show.confirm(`전체 캐시를 삭제할까요?\n에피소드 ${c1}건 / 선택지 ${c2}건 / 페르소나 ${c3}건`, '전체 캐시 초기화')) {
-            cfg.cache = {}; cfg.choicesCache = {}; cfg.personaHistory = []; cfg.personaViewIdx = -1;
+        if (await ctx.Popup.show.confirm(`전체 캐시를 삭제할까요?\n에피소드 ${c1}건 / 선택지 ${c2}건 / 페르소나 ${c3}건 / 그리팅 ${c4}건`, '전체 캐시 초기화')) {
+            cfg.cache = {}; cfg.choicesCache = {};
+            cfg.personaHistory = []; cfg.personaViewIdx = -1;
+            cfg.greetingHistory = []; cfg.greetingViewIdx = -1;
             persist(); removeBlock(); toastr.success('전체 캐시 초기화됨');
         }
     });
@@ -422,9 +560,11 @@ function updateMenuVisibility() {
     const btn1 = document.getElementById('si_menu_btn');
     const btn2 = document.getElementById('si_choices_btn');
     const btn3 = document.getElementById('si_persona_btn');
+    const btn4 = document.getElementById('si_greeting_btn');
     if (btn1) btn1.style.display = (cfg.enabled && cfg.ideasEnabled) ? '' : 'none';
     if (btn2) btn2.style.display = (cfg.enabled && cfg.choicesEnabled) ? '' : 'none';
     if (btn3) btn3.style.display = (cfg.enabled && cfg.personaEnabled) ? '' : 'none';
+    if (btn4) btn4.style.display = (cfg.enabled && cfg.greetingEnabled) ? '' : 'none';
 }
 
 function bindEvents() {
@@ -468,13 +608,30 @@ function bindEvents() {
         if (cfg.personaHistory.length > 0) { showPersonaResult(); } else { showPersonaForm(); }
     });
 
+    const greetingBtn = document.createElement('div');
+    greetingBtn.id = 'si_greeting_btn';
+    greetingBtn.className = 'list-group-item flex-container flexGap5 interactable';
+    greetingBtn.title = '그리팅 생성';
+    greetingBtn.innerHTML = '<i class="fa-solid fa-comment-dots"></i> 그리팅 생성';
+    greetingBtn.style.display = (cfg.enabled && cfg.greetingEnabled) ? '' : 'none';
+    greetingBtn.addEventListener('click', () => {
+        if (!cfg.enabled || generating) return;
+        $('#extensionsMenu').hide(); activeMode = 'greeting';
+        if (cfg.greetingHistory.length > 0) { showGreetingResult(); } else { showGreetingForm(); }
+    });
+
     const extMenu = document.getElementById('extensionsMenu');
     if (extMenu) {
-        extMenu.appendChild(menuBtn); extMenu.appendChild(choicesBtn); extMenu.appendChild(personaBtn);
+        extMenu.appendChild(menuBtn); extMenu.appendChild(choicesBtn);
+        extMenu.appendChild(personaBtn); extMenu.appendChild(greetingBtn);
     } else {
         const obs = new MutationObserver((_, o) => {
             const m = document.getElementById('extensionsMenu');
-            if (m) { m.appendChild(menuBtn); m.appendChild(choicesBtn); m.appendChild(personaBtn); o.disconnect(); }
+            if (m) {
+                m.appendChild(menuBtn); m.appendChild(choicesBtn);
+                m.appendChild(personaBtn); m.appendChild(greetingBtn);
+                o.disconnect();
+            }
         });
         obs.observe(document.body, { childList: true, subtree: true });
     }
@@ -542,7 +699,14 @@ function getCharacterData() {
         const ch = c.characters?.[c.characterId];
         if (!ch) return null;
         const d = ch.data || ch;
-        return { name: ch.name || '', description: d.description || '', personality: d.personality || '', scenario: d.scenario || '' };
+        return {
+            name: ch.name || '',
+            description: d.description || '',
+            personality: d.personality || '',
+            scenario: d.scenario || '',
+            first_mes: d.first_mes || ch.first_mes || '',
+            alternate_greetings: d.alternate_greetings || [],
+        };
     } catch { return null; }
 }
 
@@ -845,6 +1009,366 @@ function parsePersonaResult(raw) {
     let text = raw.trim();
     text = text.replace(/^```[\s\S]*?\n/, '').replace(/\n?```\s*$/, '');
     text = text.replace(/^<[^>]+>\s*/i, '').replace(/\s*<\/[^>]+>$/i, '');
+    return text.trim() || null;
+}
+
+// ─── 그리팅 생성 ───
+
+function showGreetingForm() {
+    removeBlock();
+    const char = getCharacterData();
+    if (!char) { toastr.warning('캐릭터가 선택되지 않았습니다.'); return; }
+
+    const block = $('<div id="si-block" class="si-block"></div>');
+    const head = $('<div class="si-block-head"></div>');
+    head.append(`<span class="si-block-title">💬 그리팅 생성 — ${esc(char.name)}</span>`);
+    const closeBtn = $('<button class="si-block-btn" title="닫기">✕</button>');
+    closeBtn.on('click', removeBlock);
+    head.append(closeBtn);
+    block.append(head);
+
+    const selectedTones = new Set(greetingInputs.tones || []);
+    const toneChips = TONE_PRESETS.map(t =>
+        `<button type="button" class="gg-chip ${selectedTones.has(t.id) ? 'gg-chip-active' : ''}" data-id="${t.id}">${t.label}</button>`
+    ).join('');
+
+    const lengthVal = greetingInputs.length || 'normal';
+
+    const form = $(`
+        <div class="pg-form">
+            <div class="pg-form-field">
+                <small>시작 상황 (비우면 랜덤)</small>
+                <textarea class="gg-input-situation" rows="2" placeholder="예: 비 오는 카페에서 우연히 마주침 / 오랜만의 재회 / 자유롭게 작성">${esc(greetingInputs.situation || '')}</textarea>
+            </div>
+            <div class="pg-form-field">
+                <small>분위기/톤 (다중 선택 가능, 비워두면 랜덤)</small>
+                <div class="gg-chips">${toneChips}</div>
+                <input type="text" class="gg-input-tone-custom" placeholder="추가 톤 자유 입력 (선택)" value="${esc(greetingInputs.toneCustom || '')}" style="margin-top:4px;" />
+            </div>
+            <div class="pg-form-field">
+                <small>길이</small>
+                <select class="gg-input-length text_pole">
+                    <option value="short" ${lengthVal === 'short' ? 'selected' : ''}>짧게 (~300자)</option>
+                    <option value="normal" ${lengthVal === 'normal' ? 'selected' : ''}>보통 (500-800자)</option>
+                    <option value="long" ${lengthVal === 'long' ? 'selected' : ''}>길게 (1000자+)</option>
+                </select>
+            </div>
+            <div class="pg-form-actions">
+                <button class="si-block-btn pg-btn-cancel">취소</button>
+                <button class="pg-btn pg-btn-primary pg-btn-generate">생성</button>
+            </div>
+        </div>
+    `);
+
+    // 칩 토글
+    form.find('.gg-chip').on('click', function () {
+        const id = $(this).data('id');
+        if (selectedTones.has(id)) { selectedTones.delete(id); $(this).removeClass('gg-chip-active'); }
+        else { selectedTones.add(id); $(this).addClass('gg-chip-active'); }
+    });
+
+    form.find('.pg-btn-cancel').on('click', removeBlock);
+    form.find('.pg-btn-generate').on('click', () => {
+        greetingInputs = {
+            situation: form.find('.gg-input-situation').val().trim(),
+            tones: Array.from(selectedTones),
+            toneCustom: form.find('.gg-input-tone-custom').val().trim(),
+            length: form.find('.gg-input-length').val(),
+        };
+        generateGreeting(null);
+    });
+
+    block.append(form);
+    $('#chat').append(block);
+    scrollToBlock();
+}
+
+function showGreetingResult() {
+    removeBlock();
+    if (!cfg.greetingHistory.length) return;
+
+    const total = cfg.greetingHistory.length;
+    const idx = cfg.greetingViewIdx;
+    const text = cfg.greetingHistory[idx];
+
+    const block = $('<div id="si-block" class="si-block"></div>');
+    const head = $('<div class="si-block-head"></div>');
+    head.append('<span class="si-block-title">💬 그리팅 생성 결과</span>');
+    const btns = $('<div class="si-block-btns"></div>');
+
+    const nav = $('<div class="si-nav"></div>');
+    const prevBtn = $('<button class="si-nav-btn" title="이전">◀</button>');
+    const navLabel = $(`<span class="si-nav-label">${idx + 1}/${total}</span>`);
+    const nextBtn = $('<button class="si-nav-btn" title="다음">▶</button>');
+    if (idx <= 0) prevBtn.prop('disabled', true);
+    if (idx >= total - 1) nextBtn.prop('disabled', true);
+    prevBtn.on('click', () => { if (cfg.greetingViewIdx > 0) { cfg.greetingViewIdx--; persist(); showGreetingResult(); } });
+    nextBtn.on('click', () => { if (cfg.greetingViewIdx < cfg.greetingHistory.length - 1) { cfg.greetingViewIdx++; persist(); showGreetingResult(); } });
+
+    nav.append(prevBtn, navLabel, nextBtn);
+    btns.append(nav);
+    btns.append('<button class="si-block-btn gg-do-back" title="입력으로 돌아가기">↩️</button>');
+    btns.append('<button class="si-block-btn gg-do-refresh" title="재생성">🔄</button>');
+    btns.append('<button class="si-block-btn gg-do-delete" title="전체 삭제">🗑️</button>');
+    btns.append('<button class="si-block-btn gg-do-close" title="닫기">✕</button>');
+    head.append(btns);
+    block.append(head);
+
+    const result = $(`
+        <div class="pg-result">
+            <div class="pg-result-text">${esc(text)}</div>
+            <textarea class="pg-result-editable" style="display:none;">${esc(text)}</textarea>
+            <div class="pg-result-actions">
+                <button class="si-idea-act gg-act-copy">📋 복사</button>
+                <button class="si-idea-act gg-act-edit">✏️ 수정</button>
+                <button class="si-idea-act gg-act-save" style="display:none;">💾 저장</button>
+            </div>
+        </div>
+    `);
+
+    const resultDiv = result.find('.pg-result-text');
+    const resultTextarea = result.find('.pg-result-editable');
+    const editBtn = result.find('.gg-act-edit');
+    const saveBtn = result.find('.gg-act-save');
+
+    editBtn.on('click', () => {
+        resultDiv.hide();
+        resultTextarea.val(cfg.greetingHistory[cfg.greetingViewIdx]).show().focus();
+        editBtn.hide();
+        saveBtn.show();
+    });
+
+    saveBtn.on('click', () => {
+        const edited = resultTextarea.val();
+        cfg.greetingHistory[cfg.greetingViewIdx] = edited;
+        persist();
+        resultDiv.text(edited);
+        resultTextarea.hide();
+        resultDiv.show();
+        saveBtn.hide();
+        editBtn.show();
+        toastr.success('저장됨');
+    });
+
+    result.find('.gg-act-copy').on('click', async () => {
+        const current = resultTextarea.is(':visible') ? resultTextarea.val() : cfg.greetingHistory[cfg.greetingViewIdx];
+        const ok = await copyToClipboard(current);
+        if (ok) toastr.success('복사됨');
+    });
+    block.append(result);
+
+    const revise = $(`
+        <div class="pg-revise">
+            <textarea class="pg-revise-input" rows="2" placeholder="수정사항 입력 (예: 더 잔잔하게, 마지막 문장 바꿔줘)"></textarea>
+            <button class="pg-btn pg-btn-primary pg-btn-revise">수정 반영</button>
+        </div>
+    `);
+    revise.find('.pg-btn-revise').on('click', () => {
+        const reviseText = revise.find('.pg-revise-input').val().trim();
+        if (!reviseText) { toastr.warning('수정사항을 입력하세요.'); return; }
+        generateGreeting(reviseText);
+    });
+    block.append(revise);
+
+    block.find('.gg-do-back').on('click', () => showGreetingForm());
+    block.find('.gg-do-close').on('click', removeBlock);
+    block.find('.gg-do-refresh').on('click', () => { if (!generating) generateGreeting(null); });
+    block.find('.gg-do-delete').on('click', async () => {
+        if (await ctx.Popup.show.confirm(`캐시 ${total}건을 삭제할까요?`, '전체 삭제')) {
+            cfg.greetingHistory = []; cfg.greetingViewIdx = -1; persist(); removeBlock(); toastr.success('전체 삭제됨');
+        }
+    });
+
+    $('#chat').append(block);
+    scrollToBlock();
+}
+
+async function generateGreeting(reviseText) {
+    if (generating) return;
+    if (cfg.apiSource === 'profile' && !cfg.connectionProfileId) { toastr.warning('Connection Profile을 선택하세요.'); return; }
+    const char = getCharacterData();
+    if (!char) { toastr.warning('캐릭터가 선택되지 않았습니다.'); return; }
+
+    generating = true;
+    showGreetingLoading(reviseText ? '수정 반영 중...' : '그리팅 생성 중...');
+
+    try {
+        const baseResult = reviseText && cfg.greetingHistory.length > 0 ? cfg.greetingHistory[cfg.greetingViewIdx] : null;
+        const sysContext = await buildGreetingSystemContext(char);
+        const instruction = buildGreetingPrompt(char, greetingInputs, reviseText, baseResult);
+        let raw = '';
+
+        if (cfg.apiSource === 'main') {
+            const { generateRaw } = ctx;
+            if (!generateRaw) throw new Error('generateRaw not available');
+            raw = await generateRaw({ systemPrompt: sysContext, prompt: instruction, streaming: false });
+        } else {
+            const msgs = [{ role: 'system', content: sysContext }, { role: 'user', content: instruction }];
+            raw = await sendProfileRequest(msgs, 10000);
+        }
+
+        const parsed = parseGreetingResult(raw);
+        if (!parsed) throw new Error('파싱 실패');
+        cfg.greetingHistory.push(parsed); cfg.greetingViewIdx = cfg.greetingHistory.length - 1; persist();
+        showGreetingResult();
+    } catch (err) {
+        console.error(`[${EXT_NAME}]`, err); toastr.error(`그리팅 생성 실패: ${err.message}`);
+        if (cfg.greetingHistory.length > 0) showGreetingResult(); else showGreetingForm();
+    } finally { generating = false; }
+}
+
+function showGreetingLoading(msg) {
+    removeBlock();
+    const block = $('<div id="si-block" class="si-block"></div>');
+    block.html(`<div class="si-block-head"><span class="si-block-title">💬 그리팅 생성</span></div>
+        <div class="si-loading"><div class="si-dots"><span></span><span></span><span></span></div><span>${msg}</span></div>`);
+    $('#chat').append(block); scrollToBlock();
+}
+
+async function buildGreetingSystemContext(char) {
+    let t = '';
+
+    // 1. 프리셋 활성 system 프롬프트 (톤/언어/시점 가이드)
+    const presetPrompts = getCurrentPresetPrompts();
+    if (presetPrompts) {
+        t += '=== PRESET SYSTEM PROMPTS (style/language/tone reference) ===\n';
+        t += presetPrompts + '\n\n';
+    }
+
+    // 2. 캐릭터 카드 전체
+    t += '=== CHARACTER ===\n';
+    if (char.name) t += `Name: ${char.name}\n`;
+    if (char.description) t += `\nDescription:\n${char.description}\n`;
+    if (char.personality) t += `\nPersonality:\n${char.personality}\n`;
+    if (char.scenario) t += `\nScenario:\n${char.scenario}\n`;
+    // 캐릭터 로어북
+    try {
+        const c = SillyTavern.getContext(); const ch = c.characters?.[c.characterId];
+        if (ch) {
+            const d = ch.data || ch;
+            if (d.creator_notes) t += `\nCreator Notes:\n${d.creator_notes}\n`;
+            if (d.character_book?.entries) {
+                const entries = Object.values(d.character_book.entries);
+                if (entries.length) {
+                    t += `\n\nCharacter Lore (${entries.length} entries):\n`;
+                    entries.forEach(e => { if (e.content) t += `- ${e.content}\n`; });
+                }
+            }
+        }
+    } catch {}
+    t += '\n';
+
+    // 3. 페르소나
+    const persona = getPersona();
+    if (persona) t += '=== USER PERSONA ===\n' + persona + '\n\n';
+
+    // 4. 월드인포 (현재 채팅 기반)
+    try {
+        const lore = await getLore();
+        if (lore) t += '=== LOREBOOK ===\n' + lore + '\n\n';
+    } catch {}
+
+    // 5. 기존 그리팅 (회피용)
+    const existingGreetings = [];
+    if (char.first_mes) existingGreetings.push(char.first_mes);
+    if (Array.isArray(char.alternate_greetings)) {
+        for (const g of char.alternate_greetings) { if (g) existingGreetings.push(g); }
+    }
+    if (existingGreetings.length) {
+        t += '=== EXISTING GREETINGS (DO NOT REPEAT THESE — create something different) ===\n';
+        existingGreetings.forEach((g, i) => { t += `--- Greeting ${i + 1} ---\n${g}\n\n`; });
+    }
+
+    return t.trim();
+}
+
+function buildGreetingPrompt(char, inputs, reviseText, baseResult) {
+    const lengthMap = {
+        short: 'around 300 characters (concise)',
+        normal: 'around 500-800 characters (moderate)',
+        long: '1000+ characters (extended, immersive)',
+    };
+
+    // 톤 조합
+    let toneStr = '';
+    const toneLabels = (inputs.tones || []).map(id => {
+        const t = TONE_PRESETS.find(tp => tp.id === id);
+        return t ? t.label : null;
+    }).filter(Boolean);
+    if (toneLabels.length) toneStr += toneLabels.join(', ');
+    if (inputs.toneCustom) toneStr += (toneStr ? ', ' : '') + inputs.toneCustom;
+
+    let prompt = `You are writing a new greeting (first message / opening scene) for the character {{char}} for use in a SillyTavern roleplay.
+
+CRITICAL RULES:
+1. ANALYZE the existing greetings in the system context carefully. Match their:
+   - LANGUAGE (write in the same language as the existing greetings)
+   - NARRATIVE STYLE (point of view, tense, prose vs. dialogue ratio)
+   - FORMATTING conventions (asterisks for actions, italics, quotation marks, etc.)
+   - TONE/VOICE consistent with {{char}}'s personality
+2. Use {{user}} and {{char}} placeholders — do NOT use real names. SillyTavern will substitute them.
+3. Create a NEW situation that is meaningfully DIFFERENT from all existing greetings. Do not repeat or closely mirror their setup, opening lines, or scene structure.
+4. The greeting must end at a natural pause point that invites {{user}}'s response — do not write {{user}}'s reply or actions.
+5. Stay grounded in {{char}}'s established world, personality, and speech patterns from the character card.
+6. The greeting should set up an opening scene that {{user}} can naturally engage with.
+7. If the system context contains preset/style instructions (narration style, tense, register, etc.), follow them.
+
+LENGTH: ${lengthMap[inputs.length] || lengthMap.normal}
+
+`;
+
+    // 시작 상황
+    if (inputs.situation) {
+        prompt += `STARTING SITUATION (use this as the setup):\n${inputs.situation}\n\n`;
+    } else {
+        prompt += `STARTING SITUATION: Choose a fitting, fresh scenario at random — something natural for this character and world, but distinctly different from existing greetings.\n\n`;
+    }
+
+    // 톤
+    if (toneStr) {
+        prompt += `MOOD/TONE: ${toneStr}\n\n`;
+    } else {
+        prompt += `MOOD/TONE: Choose freely, whatever fits the character and situation best.\n\n`;
+    }
+
+    // 수정 모드
+    if (reviseText && baseResult) {
+        prompt += `--- REVISION REQUEST ---
+
+## Critical Rules
+- Your ONLY task is to apply the specific changes requested below to the existing greeting.
+- Do NOT alter, rephrase, reword, or "improve" any part that is NOT mentioned in the feedback.
+- Sentences and details not referenced in the feedback must remain EXACTLY as they are.
+- Output the COMPLETE revised greeting with ONLY the requested changes applied.
+
+## Previous Greeting
+${baseResult}
+
+## Requested Changes
+${reviseText}
+
+Remember: Apply ONLY the requested changes above. Every other part must stay identical.
+
+`;
+    }
+
+    prompt += `OUTPUT FORMAT:
+- Output ONLY the greeting text itself
+- Do NOT include any explanation, commentary, header, or meta text
+- Do NOT wrap in code blocks, quotes, or tags
+- Do NOT include "Greeting:" or any label
+- Use {{user}} and {{char}} placeholders where appropriate`;
+
+    return prompt;
+}
+
+function parseGreetingResult(raw) {
+    if (!raw || !raw.trim()) return null;
+    let text = raw.trim();
+    text = text.replace(/^```[\s\S]*?\n/, '').replace(/\n?```\s*$/, '');
+    text = text.replace(/^<[^>]+>\s*/i, '').replace(/\s*<\/[^>]+>$/i, '');
+    // 흔한 라벨 제거
+    text = text.replace(/^(Greeting|First Message|First Mes)\s*[:：]\s*\n?/i, '');
     return text.trim() || null;
 }
 
