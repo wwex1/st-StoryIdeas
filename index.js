@@ -69,6 +69,7 @@ const DEFAULTS = {
     prompt: INITIAL_PROMPT,
     promptPresets: {},
     cache: {},
+    episodeRepository: {},
     // 선택지 생성 설정
     choicesCount: 3,
     choicesDetail: 'brief',
@@ -102,6 +103,93 @@ function esc(str) {
 }
 
 function chatKey() { return getCurrentChatId() || null; }
+
+function getCurrentCharacterStorageInfo() {
+    try {
+        const context = SillyTavern.getContext();
+        const character = context.characters?.[context.characterId];
+
+        if (!character) return null;
+
+        const data = character.data || character;
+        const avatar = character.avatar || data.avatar || '';
+        const fallbackId = context.characterId;
+
+        if (!avatar && fallbackId === undefined) return null;
+
+        return {
+            key: avatar
+                ? `avatar:${avatar}`
+                : `character:${fallbackId}`,
+            name: character.name || data.name || '캐릭터',
+        };
+    } catch {
+        return null;
+    }
+}
+
+function getEpisodeRepository(create = false) {
+    const character = getCurrentCharacterStorageInfo();
+
+    if (!character) return null;
+
+    if (!cfg.episodeRepository || typeof cfg.episodeRepository !== 'object') {
+        if (!create) return [];
+        cfg.episodeRepository = {};
+    }
+
+    if (!Array.isArray(cfg.episodeRepository[character.key])) {
+        if (!create) return [];
+        cfg.episodeRepository[character.key] = [];
+    }
+
+    return cfg.episodeRepository[character.key];
+}
+
+function createEpisodeId() {
+    if (globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function saveEpisodeToRepository(item, fallbackTitle) {
+    const repository = getEpisodeRepository(true);
+
+    if (!repository) {
+        toastr.warning('캐릭터가 선택되지 않았습니다.');
+        return;
+    }
+
+    const title = String(item?.title || fallbackTitle || '제목 없는 에피소드').trim();
+    const body = String(item?.body || '').trim();
+
+    if (!body) {
+        toastr.warning('저장할 에피소드 내용이 없습니다.');
+        return;
+    }
+
+    const duplicate = repository.some(entry => (
+        entry.title === title
+        && entry.body === body
+    ));
+
+    if (duplicate) {
+        toastr.info('이미 저장된 에피소드입니다.');
+        return;
+    }
+
+    repository.unshift({
+        id: createEpisodeId(),
+        title,
+        body,
+        savedAt: Date.now(),
+    });
+
+    persist();
+    toastr.success('에피 저장소에 저장됨');
+}
 
 // 모드별 캐시 (ideas/choices) — 쓰기용 (없으면 생성)
 function getCache(mode) {
@@ -457,10 +545,12 @@ function mountPresetUI(root, selSel, loadSel, saveSel, delSel, getPresets, setPr
 
 function updateMenuVisibility() {
     const btn1 = document.getElementById('si_menu_btn');
+    const repositoryBtn = document.getElementById('si_repository_btn');
     const btn2 = document.getElementById('si_choices_btn');
     const btn3 = document.getElementById('si_persona_btn');
     const btn4 = document.getElementById('si_greeting_btn');
     if (btn1) btn1.style.display = (cfg.enabled && cfg.ideasEnabled) ? '' : 'none';
+    if (repositoryBtn) repositoryBtn.style.display = (cfg.enabled && cfg.ideasEnabled) ? '' : 'none';
     if (btn2) btn2.style.display = (cfg.enabled && cfg.choicesEnabled) ? '' : 'none';
     if (btn3) btn3.style.display = (cfg.enabled && cfg.personaEnabled) ? '' : 'none';
     if (btn4) btn4.style.display = (cfg.enabled && cfg.greetingEnabled) ? '' : 'none';
@@ -479,6 +569,18 @@ function bindEvents() {
         const cache = peekCache('ideas');
         if (cache) { renderBlock('ideas'); scrollToBlock(); return; }
         await generate(false, 'ideas');
+    });
+
+    const repositoryBtn = document.createElement('div');
+    repositoryBtn.id = 'si_repository_btn';
+    repositoryBtn.className = 'list-group-item flex-container flexGap5 interactable';
+    repositoryBtn.title = '에피 저장소';
+    repositoryBtn.innerHTML = '<i class="fa-solid fa-box-archive"></i> 에피 저장소';
+    repositoryBtn.style.display = (cfg.enabled && cfg.ideasEnabled) ? '' : 'none';
+    repositoryBtn.addEventListener('click', () => {
+        if (!cfg.enabled || generating) return;
+        $('#extensionsMenu').hide(); activeMode = 'episodeRepository';
+        showEpisodeRepository();
     });
 
     const choicesBtn = document.createElement('div');
@@ -521,13 +623,13 @@ function bindEvents() {
 
     const extMenu = document.getElementById('extensionsMenu');
     if (extMenu) {
-        extMenu.appendChild(menuBtn); extMenu.appendChild(choicesBtn);
+        extMenu.appendChild(menuBtn); extMenu.appendChild(repositoryBtn); extMenu.appendChild(choicesBtn);
         extMenu.appendChild(personaBtn); extMenu.appendChild(greetingBtn);
     } else {
         const obs = new MutationObserver((_, o) => {
             const m = document.getElementById('extensionsMenu');
             if (m) {
-                m.appendChild(menuBtn); m.appendChild(choicesBtn);
+                m.appendChild(menuBtn); m.appendChild(repositoryBtn); m.appendChild(choicesBtn);
                 m.appendChild(personaBtn); m.appendChild(greetingBtn);
                 o.disconnect();
             }
@@ -1395,6 +1497,177 @@ function parseChoices(content) {
 
 // ─── 렌더링 (ideas/choices) ───
 
+function showEpisodeRepository() {
+    removeBlock();
+
+    const character = getCurrentCharacterStorageInfo();
+
+    if (!character) {
+        toastr.warning('캐릭터가 선택되지 않았습니다.');
+        return;
+    }
+
+    const repository = getEpisodeRepository(false) || [];
+    const block = $('<div id="si-block" class="si-block si-repository"></div>');
+    const head = $('<div class="si-block-head"></div>');
+
+    head.append(
+        `<span class="si-block-title">🗃️ 에피 저장소 — ${esc(character.name)} <small class="si-repo-count">${repository.length}</small></span>`,
+    );
+
+    const headButtons = $('<div class="si-block-btns"></div>');
+    const clearButton = $('<button class="si-block-btn si-repo-clear" title="저장된 에피소드 일괄 삭제">🗑️</button>');
+    const closeButton = $('<button class="si-block-btn" title="닫기">✕</button>');
+
+    clearButton.prop('disabled', repository.length === 0);
+    closeButton.on('click', removeBlock);
+
+    clearButton.on('click', async () => {
+        if (!repository.length) return;
+
+        const confirmed = await ctx.Popup.show.confirm(
+            `${character.name}의 저장된 에피소드 ${repository.length}개를 모두 삭제할까요?`,
+            '에피 저장소 일괄 삭제',
+        );
+
+        if (!confirmed) return;
+
+        cfg.episodeRepository[character.key] = [];
+        persist();
+        showEpisodeRepository();
+        toastr.success('저장된 에피소드가 모두 삭제됨');
+    });
+
+    headButtons.append(clearButton, closeButton);
+    head.append(headButtons);
+    block.append(head);
+
+    if (!repository.length) {
+        block.append(`
+            <div class="si-repo-empty">
+                저장된 에피소드가 없습니다.
+            </div>
+        `);
+    } else {
+        const cards = $('<div class="si-cards si-repo-cards"></div>');
+
+        repository.forEach((entry, index) => {
+            const title = entry.title || `에피소드 ${index + 1}`;
+            const body = entry.body || '';
+            const card = $(
+                `<div class="si-idea si-repo-item">
+                    <div class="si-idea-head si-repo-item-head">
+                        <span class="si-idea-num">${index + 1}</span>
+                        <span class="si-idea-title si-repo-title">${esc(title)}</span>
+                        <input class="si-repo-title-input" type="text" value="${esc(title)}" style="display:none">
+                    </div>
+
+                    <div class="si-idea-desc si-repo-body">${esc(body).replace(/\n/g, '<br>')}</div>
+                    <textarea class="si-repo-body-input" style="display:none">${esc(body)}</textarea>
+
+                    <div class="si-idea-actions">
+                        <button class="si-idea-act si-repo-copy" title="복사">📋 복사</button>
+                        <button class="si-idea-act si-repo-edit" title="수정">✏️ 수정</button>
+                        <button class="si-idea-act si-repo-cancel" title="수정 취소" style="display:none">↩️ 취소</button>
+                        <button class="si-idea-act si-repo-delete" title="삭제">🗑️ 삭제</button>
+                    </div>
+                </div>`,
+            );
+
+            const titleText = card.find('.si-repo-title');
+            const titleInput = card.find('.si-repo-title-input');
+            const bodyText = card.find('.si-repo-body');
+            const bodyInput = card.find('.si-repo-body-input');
+            const editButton = card.find('.si-repo-edit');
+            const cancelButton = card.find('.si-repo-cancel');
+
+            const stopEditing = () => {
+                titleInput.val(entry.title || title);
+                bodyInput.val(entry.body || '');
+                titleInput.hide();
+                bodyInput.hide();
+                titleText.show();
+                bodyText.show();
+                cancelButton.hide();
+                editButton.html('✏️ 수정').attr('title', '수정');
+                card.removeClass('si-repo-editing');
+            };
+
+            card.find('.si-repo-copy').on('click', async () => {
+                const copyText = bodyInput.is(':visible')
+                    ? bodyInput.val()
+                    : entry.body;
+
+                const ok = await copyToClipboard(copyText || '');
+
+                if (ok) toastr.success('복사됨');
+            });
+
+            editButton.on('click', () => {
+                if (bodyInput.is(':visible')) {
+                    const editedTitle = String(titleInput.val() || '').trim()
+                        || '제목 없는 에피소드';
+                    const editedBody = String(bodyInput.val() || '').trim();
+
+                    if (!editedBody) {
+                        toastr.warning('에피소드 내용은 비워둘 수 없습니다.');
+                        return;
+                    }
+
+                    entry.title = editedTitle;
+                    entry.body = editedBody;
+                    entry.updatedAt = Date.now();
+                    persist();
+                    showEpisodeRepository();
+                    toastr.success('에피소드가 수정됨');
+                    return;
+                }
+
+                titleText.hide();
+                bodyText.hide();
+                titleInput.show();
+                bodyInput.show();
+                cancelButton.show();
+                editButton.html('💾 저장').attr('title', '수정 내용 저장');
+                card.addClass('si-repo-editing');
+                titleInput.trigger('focus');
+            });
+
+            cancelButton.on('click', stopEditing);
+
+            card.find('.si-repo-delete').on('click', async () => {
+                const confirmed = await ctx.Popup.show.confirm(
+                    `“${title}” 에피소드를 삭제할까요?`,
+                    '에피소드 삭제',
+                );
+
+                if (!confirmed) return;
+
+                const currentRepository = getEpisodeRepository(false);
+                const targetIndex = currentRepository.findIndex(item => (
+                    item === entry
+                    || (entry.id && item.id === entry.id)
+                ));
+
+                if (targetIndex !== -1) {
+                    currentRepository.splice(targetIndex, 1);
+                    persist();
+                }
+
+                showEpisodeRepository();
+                toastr.success('에피소드가 삭제됨');
+            });
+
+            cards.append(card);
+        });
+
+        block.append(cards);
+    }
+
+    $('#chat').append(block);
+    scrollToBlock();
+}
+
 function renderBlock(mode) {
     removeBlock();
     const cache = peekCache(mode); if (!cache) return;
@@ -1423,11 +1696,17 @@ function renderBlock(mode) {
     items.forEach((item, i) => {
         const bodyText = item.body || '';
         const titleText = isChoices ? `선택지 ${i + 1}` : (item.title || `아이디어 ${i + 1}`);
-        const card = $(`<div class="si-idea"><div class="si-idea-head"><span class="si-idea-num">${i + 1}</span><span class="si-idea-title">${esc(titleText)}</span></div><div class="si-idea-desc">${esc(bodyText).replace(/\n/g, '<br>')}</div><div class="si-idea-actions"><button class="si-idea-act si-act-copy" title="복사">📋 복사</button><button class="si-idea-act si-act-insert" title="입력창에 삽입">✏️ 삽입</button></div></div>`);
+        const saveButton = isChoices
+            ? ''
+            : '<button class="si-idea-act si-act-save-episode" title="에피 저장소에 저장">💾 저장</button>';
+        const card = $(`<div class="si-idea"><div class="si-idea-head"><span class="si-idea-num">${i + 1}</span><span class="si-idea-title">${esc(titleText)}</span></div><div class="si-idea-desc">${esc(bodyText).replace(/\n/g, '<br>')}</div><div class="si-idea-actions"><button class="si-idea-act si-act-copy" title="복사">📋 복사</button><button class="si-idea-act si-act-insert" title="입력창에 삽입">✏️ 삽입</button>${saveButton}</div></div>`);
         card.find('.si-act-copy').on('click', async () => { const ok = await copyToClipboard(bodyText); if (ok) toastr.success('복사됨'); });
         card.find('.si-act-insert').on('click', () => {
             const textarea = $('#send_textarea'); if (!textarea.length) { toastr.warning('입력창을 찾을 수 없습니다.'); return; }
             const cur = textarea.val(); textarea.val(cur ? cur + '\n' + bodyText : bodyText); textarea.trigger('input'); textarea.focus(); toastr.success('입력창에 삽입됨');
+        });
+        card.find('.si-act-save-episode').on('click', () => {
+            saveEpisodeToRepository(item, titleText);
         });
         cards.append(card);
     });

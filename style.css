@@ -162,6 +162,67 @@
     background: var(--SmartThemeBorderColor);
 }
 
+/* 에피 저장소 */
+.si-repo-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    margin-left: 4px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: var(--SmartThemeBorderColor);
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.75em;
+    font-weight: normal;
+    box-sizing: border-box;
+}
+
+.si-repo-clear:disabled {
+    opacity: 0.2;
+    cursor: default;
+}
+
+.si-repo-empty {
+    padding: 28px 12px;
+    text-align: center;
+    color: var(--SmartThemeQuoteColor);
+    font-size: 0.84em;
+    opacity: 0.65;
+}
+
+.si-repo-title-input,
+.si-repo-body-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 7px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    font-family: inherit;
+    outline: none;
+}
+
+.si-repo-title-input {
+    min-width: 0;
+    padding: 5px 8px;
+    font-size: 0.9em;
+    font-weight: bold;
+}
+
+.si-repo-body-input {
+    min-height: 110px;
+    padding: 8px 10px;
+    font-size: 0.82em;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.si-repo-editing {
+    border-color: var(--SmartThemeQuoteColor);
+}
+
 /* 로딩 */
 .si-loading {
     display: flex;
