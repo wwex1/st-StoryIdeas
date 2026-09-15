@@ -321,6 +321,49 @@
     white-space: nowrap;
 }
 
+/* 에피소드 추천 요청 입력 바 */
+.si-request-bar {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+    margin-bottom: 10px;
+}
+
+.si-request-input {
+    flex: 1;
+    background: var(--SmartThemeChatTintColor, var(--SmartThemeBlurTintColor));
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.82em;
+    font-family: inherit;
+    line-height: 1.4;
+    resize: vertical;
+    min-height: 34px;
+}
+
+.si-request-input::placeholder {
+    color: var(--SmartThemeQuoteColor);
+    opacity: 0.5;
+}
+
+.si-request-go {
+    flex-shrink: 0;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 8px;
+    background: var(--SmartThemeQuoteColor);
+    color: var(--SmartThemeBlurTintColor);
+    cursor: pointer;
+    font-size: 1em;
+    padding: 0 12px;
+    transition: opacity 0.15s;
+}
+
+.si-request-go:hover {
+    opacity: 0.85;
+}
+
 /* ─── 페르소나 생성 ─── */
 
 .pg-form {

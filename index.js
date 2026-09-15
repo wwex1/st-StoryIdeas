@@ -57,6 +57,7 @@ const TONE_PRESETS = [
 const DEFAULTS = {
     enabled: true,
     ideasEnabled: true,
+    ideasRequestEnabled: false,
     choicesEnabled: true,
     personaEnabled: true,
     greetingEnabled: true,
@@ -93,6 +94,7 @@ let ctx = null;
 let generating = false;
 let personaInputs = {};
 let greetingInputs = {};
+let ideasRequest = '';
 
 function persist() { ctx.saveSettingsDebounced(); }
 
@@ -398,6 +400,9 @@ async function mountSettings() {
     root.find('.si_ideas_enabled').prop('checked', cfg.ideasEnabled).on('change', function () {
         cfg.ideasEnabled = $(this).prop('checked'); persist(); updateMenuVisibility();
     });
+    root.find('.si_request_enabled').prop('checked', cfg.ideasRequestEnabled).on('change', function () {
+        cfg.ideasRequestEnabled = $(this).prop('checked'); persist();
+    });
     root.find('.sc_choices_enabled').prop('checked', cfg.choicesEnabled).on('change', function () {
         cfg.choicesEnabled = $(this).prop('checked'); persist(); updateMenuVisibility();
     });
@@ -568,6 +573,8 @@ function bindEvents() {
         $('#extensionsMenu').hide(); activeMode = 'ideas';
         const cache = peekCache('ideas');
         if (cache) { renderBlock('ideas'); scrollToBlock(); return; }
+        if (cfg.ideasRequestEnabled) { showIdeasForm(); return; }
+        ideasRequest = '';
         await generate(false, 'ideas');
     });
 
@@ -638,6 +645,7 @@ function bindEvents() {
     }
 
     ctx.eventSource.on(event_types.CHAT_CHANGED, () => {
+        ideasRequest = '';
         removeBlock();
     });
 }
@@ -1379,7 +1387,12 @@ function buildIdeasInstruction() {
         for (const ideas of cache.history) { for (const idea of ideas) { if (idea.title) prevTitles.push(idea.title); } }
         if (prevTitles.length > 0) avoidNote = `\n\n⚠️ IMPORTANT: The following ideas were already suggested. Do NOT repeat or closely resemble any of them. Come up with completely different ideas:\n${prevTitles.map(t => `- ${t}`).join('\n')}`;
     }
-    return `${ctx.substituteParams(cfg.prompt)}\n\n${langNote}${avoidNote}\n\nOUTPUT FORMAT - Use this EXACT structure:\n<suggestions>\n[Title of idea 1]\nDescription here.\n\n[Title of idea 2]\nDescription here.\n</suggestions>\n\nRules:\n- Exactly ${cfg.count} suggestions\n- ${detailMap[cfg.detailLevel] || detailMap.brief}\n- Title in [brackets], description on next lines\n- Wrap in <suggestions>...</suggestions>\n- NO text outside the tags`;
+    let requestNote = '';
+    const request = (ideasRequest || '').trim();
+    if (request) {
+        requestNote = `\n\n=== USER REQUEST (high priority) ===\nThe user wants the episode suggestions to be based on the following request. Strongly prioritize and reflect this in ALL suggestions, while keeping them plausible within the established story, characters, and world:\n"${ctx.substituteParams(request)}"`;
+    }
+    return `${ctx.substituteParams(cfg.prompt)}\n\n${langNote}${requestNote}${avoidNote}\n\nOUTPUT FORMAT - Use this EXACT structure:\n<suggestions>\n[Title of idea 1]\nDescription here.\n\n[Title of idea 2]\nDescription here.\n</suggestions>\n\nRules:\n- Exactly ${cfg.count} suggestions\n- ${detailMap[cfg.detailLevel] || detailMap.brief}\n- Title in [brackets], description on next lines\n- Wrap in <suggestions>...</suggestions>\n- NO text outside the tags`;
 }
 
 function buildChoicesInstruction() {
@@ -1496,6 +1509,49 @@ function parseChoices(content) {
 }
 
 // ─── 렌더링 (ideas/choices) ───
+
+function showIdeasForm() {
+    removeBlock();
+    activeMode = 'ideas';
+
+    const block = $('<div id="si-block" class="si-block"></div>');
+    const head = $('<div class="si-block-head"></div>');
+    head.append('<span class="si-block-title">💡 에피소드 추천</span>');
+
+    const closeBtn = $('<button class="si-block-btn" title="닫기">✕</button>');
+    closeBtn.on('click', removeBlock);
+    head.append(closeBtn);
+    block.append(head);
+
+    const form = $(`
+        <div class="pg-form">
+            <div class="pg-form-field">
+                <small>원하는 요청 (비우면 자동 추천)</small>
+                <textarea
+                    class="si-request-input"
+                    rows="3"
+                    placeholder="예: 긴장감 있는 전개 / 가벼운 일상 에피소드 위주 / 비우면 알아서 추천"
+                >${esc(ideasRequest || '')}</textarea>
+            </div>
+
+            <div class="pg-form-actions">
+                <button class="si-block-btn pg-btn-cancel">취소</button>
+                <button class="pg-btn pg-btn-primary pg-btn-generate">생성</button>
+            </div>
+        </div>
+    `);
+
+    form.find('.pg-btn-cancel').on('click', removeBlock);
+    form.find('.pg-btn-generate').on('click', async () => {
+        if (generating) return;
+        ideasRequest = form.find('.si-request-input').val();
+        await generate(false, 'ideas');
+    });
+
+    block.append(form);
+    $('#chat').append(block);
+    scrollToBlock();
+}
 
 function showEpisodeRepository() {
     removeBlock();
@@ -1691,6 +1747,29 @@ function renderBlock(mode) {
     right.append('<button class="si-block-btn si-do-refresh" title="새로 생성">🔄</button>');
     right.append('<button class="si-block-btn si-do-delete" title="전체 삭제">🗑️</button>');
     head.append(right); block.append(head);
+
+    if (!isChoices) {
+        const requestBar = $(`
+            <div class="si-request-bar">
+                <textarea
+                    class="si-request-input"
+                    rows="1"
+                    placeholder="원하는 방향이나 소재를 적으면 반영해서 리롤합니다. 비우면 자동 추천"
+                ></textarea>
+                <button class="si-request-go" title="이 요청으로 재생성">↻</button>
+            </div>
+        `);
+        const requestInput = requestBar.find('.si-request-input');
+        requestInput.val(ideasRequest).on('input', function () {
+            ideasRequest = $(this).val();
+        });
+        requestBar.find('.si-request-go').on('click', async () => {
+            if (generating) return;
+            ideasRequest = requestInput.val();
+            await generate(true, 'ideas');
+        });
+        block.append(requestBar);
+    }
 
     const cardsWrap = $('<div id="si-cards-area"></div>'); const cards = $('<div class="si-cards"></div>');
     items.forEach((item, i) => {
