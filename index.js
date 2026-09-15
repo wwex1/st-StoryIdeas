@@ -676,7 +676,8 @@ async function generate(isRetry, mode) {
     } else { showLoading(mode); }
 
     try {
-        const instruction = buildInstruction(mode);
+        const charmMemory = mode === 'ideas' ? await getCharmMemory() : '';
+        const instruction = buildInstruction(mode, charmMemory);
         let raw = '';
         if (cfg.apiSource === 'main') {
             const bg = await gatherPlain(lastBot);
@@ -1372,14 +1373,18 @@ function parseGreetingResult(raw) {
 
 // ─── 프롬프트 (ideas/choices) ───
 
-function buildInstruction(mode) {
+function buildInstruction(mode, charmMemory = '') {
     if (mode === 'choices') return buildChoicesInstruction();
-    return buildIdeasInstruction();
+    return buildIdeasInstruction(charmMemory);
 }
 
-function buildIdeasInstruction() {
+function buildIdeasInstruction(charmMemory = '') {
     const langNote = (cfg.lang || 'en') === 'ko' ? '⚠️ 모든 추천을 한국어로 작성하세요.' : '⚠️ Write all suggestions in English.';
     const detailMap = { brief: 'Keep each description to 1-2 sentences (brief and concise)', normal: 'Write 3-5 sentences per description (moderate detail)' };
+    const memory = String(charmMemory || '').trim();
+    const memoryNote = memory
+        ? `\n\n=== CHARM MEMORY (established story context) ===\nUse the following memory to keep suggestions consistent with the story's established history, open promises, and unresolved threads:\n${memory}\n=== END CHARM MEMORY ===`
+        : '';
     let avoidNote = '';
     const cache = peekCache('ideas');
     if (cache && cache.history.length > 0) {
@@ -1392,7 +1397,7 @@ function buildIdeasInstruction() {
     if (request) {
         requestNote = `\n\n=== USER REQUEST (high priority) ===\nThe user wants the episode suggestions to be based on the following request. Strongly prioritize and reflect this in ALL suggestions, while keeping them plausible within the established story, characters, and world:\n"${ctx.substituteParams(request)}"`;
     }
-    return `${ctx.substituteParams(cfg.prompt)}\n\n${langNote}${requestNote}${avoidNote}\n\nOUTPUT FORMAT - Use this EXACT structure:\n<suggestions>\n[Title of idea 1]\nDescription here.\n\n[Title of idea 2]\nDescription here.\n</suggestions>\n\nRules:\n- Exactly ${cfg.count} suggestions\n- ${detailMap[cfg.detailLevel] || detailMap.brief}\n- Title in [brackets], description on next lines\n- Wrap in <suggestions>...</suggestions>\n- NO text outside the tags`;
+    return `${ctx.substituteParams(cfg.prompt)}\n\n${langNote}${memoryNote}${requestNote}${avoidNote}\n\nOUTPUT FORMAT - Use this EXACT structure:\n<suggestions>\n[Title of idea 1]\nDescription here.\n\n[Title of idea 2]\nDescription here.\n</suggestions>\n\nRules:\n- Exactly ${cfg.count} suggestions\n- ${detailMap[cfg.detailLevel] || detailMap.brief}\n- Title in [brackets], description on next lines\n- Wrap in <suggestions>...</suggestions>\n- NO text outside the tags`;
 }
 
 function buildChoicesInstruction() {
@@ -1413,6 +1418,19 @@ function buildChoicesInstruction() {
 }
 
 // ─── 컨텍스트 수집 ───
+
+async function getCharmMemory() {
+    try {
+        const charmBridge = window.__charmBridge;
+        if (typeof charmBridge?.getStoryContext !== 'function') return '';
+
+        const result = await charmBridge.getStoryContext({ maxChars: 6000 });
+        return typeof result === 'string' ? result.trim() : '';
+    } catch (error) {
+        console.warn(`[${EXT_NAME}] 참메모리 컨텍스트를 불러오지 못했습니다:`, error);
+        return '';
+    }
+}
 
 function findLastBot() {
     for (let i = ctx.chat.length - 1; i >= 0; i--) { if (!ctx.chat[i].is_user) return i; }
